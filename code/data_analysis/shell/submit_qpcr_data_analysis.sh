@@ -5,24 +5,19 @@
 ## command line arg 3 is how many women to sample
 
 q=${1}
-nfolds=${2}
-sample=${3}
-qobs=${4}
-niter=${5}
-nburn=${6}
-nchains=${7}
-loo=${8}
-div_num=${9}
-save_model=${10}
+qobs=${2}
+niter=${3}
+nburn=${4}
+nchains=${5}
+loo=${6}
+div_num=${7}
+save_model=${8}
 
 
 ml R/3.4.3-foss-2016b-fh1
 
-sbatch --time=3-0 ./qpcr_data_analysis.sh "naive" 0 1 "$nchains" "$niter" "$nburn" "$q" "$nfolds" "$sample" "$qobs" "$loo" "$div_num" "$save_model"
+sbatch --time=3-0 ./qpcr_data_analysis.sh "naive" 1 "$nchains" "$niter" "$nburn" "$q" "$sample" "$qobs" "$loo" "$div_num" "$save_model"
 
-for i in $(seq 1 $nfolds)
-do
-    sbatch -c6 -p largenode --mem 33G --time=7-0 ./qpcr_data_analysis.sh "no_ve" 1 $i "$nchains" "$niter" "$nburn" "$q" "$nfolds" "$sample" "$qobs" "$loo" "$div_num" "$save_model"
+sbatch -c6 -p largenode --mem 33G --time=7-0 ./qpcr_data_analysis.sh "no_ve" 1 "$nchains" "$niter" "$nburn" "$q" "$sample" "$qobs" "$loo" "$div_num" "$save_model"
 
-    sbatch -c6 -p largenode --mem 33G --time=7-0 ./qpcr_data_analysis.sh "ve" 1 $i "$nchains" "$niter" "$nburn" "$q" "$nfolds" "$sample" "$qobs" "$loo" "$div_num" "$save_model"
-done
+sbatch -c6 -p largenode --mem 33G --time=7-0 ./qpcr_data_analysis.sh "ve" 1 "$nchains" "$niter" "$nburn" "$q" "$sample" "$qobs" "$loo" "$div_num" "$save_model"

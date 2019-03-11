@@ -28,8 +28,6 @@ source(paste0(code_dir, "data_analysis/R/get_most_abundant_taxa.R"))
 parser <- ArgumentParser()
 parser$add_argument("--estimator", default = "naive", help = "the estimator to calculate")
 parser$add_argument("--do-parallel", type = "integer", default = 1, help = "parallelize?")
-parser$add_argument("--fold-num", type = "double", default = 1, help = "data fold to run on")
-parser$add_argument("--num-folds", type = "double", default = 1, help = "number of data folds")
 parser$add_argument("--n-chains", type = "double", default = 6, help = "number of chains")
 parser$add_argument("--n-iter", type = "double", default = 10500, help = "number of iterations")
 parser$add_argument("--n-burnin", type = "double", default = 10000, help = "number of burn-in")
@@ -121,9 +119,6 @@ cat("\n Taxa to estimate: \n")
 print(taxa_to_estimate)
 
 set.seed(4747)
-## break up the sample into even chunks
-# folds_init <- rep(seq_len(args$num_folds), length = dim(br16_mat)[1])
-# folds <- sample(folds_init)
 ## sample women
 samp <- sample(1:dim(br16_mat)[1], args$sample_num)
 

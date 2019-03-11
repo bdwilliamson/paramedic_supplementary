@@ -6,4 +6,58 @@ The main workhorse function for these simulations is `qpcr_analysis.R`, which al
 
 ## Primary analysis of 17 taxa from 1213 women
 
+The arguments that we pass to `qpcr_analysis.R` are:
+
+1. the estimator: "ve" to run `predict_qpcr_with_varying_efficiency.stan`; "no_ve" to run `predict_qpcr.stan`; and "naive" to run the naive estimator.
+2. whether or not to run in parallel: 1 (0 means no).
+3. the number of chains: 6.
+4. the number of iterations per chain: 10500.
+5. the number of warmups per chain: 10000.
+6. the number of total taxa: 17.
+7. the number of women to sample: 1213.
+8. the number of taxa with observed qPCR: 7.
+9. the taxon index to leave out: 999 (a leave-one-out analysis would use 1--7)
+10. the number to divide qPCR by to create valid R integers: 1000.
+11. whether or not to save the stan model along with output: 1 (0 means no).
+
+We then run the data analysis with:
+```{sh}
+./shell/submit_qpcr_data_analysis.sh 17 7 10500 10000 6 999 1000 1
+```
+
+To load the results of the analysis and produce the tables and figures used in the manuscript, run `.R`.
+
 ## Leave-one-out analysis of 7 taxa from 1213 women
+
+The arguments that we pass to `qpcr_analysis.R` are:
+
+1. the estimator: "ve" to run `predict_qpcr_with_varying_efficiency.stan`; "no_ve" to run `predict_qpcr.stan`; and "naive" to run the naive estimator.
+2. whether or not to run in parallel: 1 (0 means no).
+3. the number of chains: 6.
+4. the number of iterations per chain: 10500.
+5. the number of warmups per chain: 10000.
+6. the number of total taxa: 7.
+7. the number of women to sample: 1213.
+8. the number of taxa with observed qPCR: 7.
+9. the taxon index to leave out: 1--7 
+10. the number to divide qPCR by to create valid R integers: 1000.
+11. whether or not to save the stan model along with output: 1 (0 means no).
+
+We then run the data analysis with:
+```{sh}
+./shell/submit_qpcr_data_analysis.sh 7 7 10500 10000 6 1 1000 1
+
+./shell/submit_qpcr_data_analysis.sh 7 7 10500 10000 6 2 1000 1
+
+./shell/submit_qpcr_data_analysis.sh 7 7 10500 10000 6 3 1000 1
+
+./shell/submit_qpcr_data_analysis.sh 7 7 10500 10000 6 4 1000 1
+
+./shell/submit_qpcr_data_analysis.sh 7 7 10500 10000 6 5 1000 1
+
+./shell/submit_qpcr_data_analysis.sh 7 7 10500 10000 6 6 1000 1
+
+./shell/submit_qpcr_data_analysis.sh 7 7 10500 10000 6 7 1000 1
+```
+
+To load the results of the analysis and produce the tables and figures used in the manuscript, run `R/load_qpcr_leave_one_out_analysis.R`.

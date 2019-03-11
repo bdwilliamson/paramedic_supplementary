@@ -1,3 +1,3 @@
 #!/bin/bash
 
-Rscript ../R/qpcr_analysis.R --estimator ${1} --do-parallel ${2} --fold-num ${3} --n-chains ${4} --n-iter ${5} --n-burnin ${6} --q ${7} --num-folds ${8} --sample-num ${9} --q-obs ${10} --leave-one-out ${11} --div-num ${12} --save-stan-model ${13}
+Rscript ../R/qpcr_analysis.R --estimator ${1} --do-parallel ${2} --n-chains ${3} --n-iter ${4} --n-burnin ${5} --q ${6} --sample-num ${7} --q-obs ${8} --leave-one-out ${9} --div-num ${10} --save-stan-model ${11}
