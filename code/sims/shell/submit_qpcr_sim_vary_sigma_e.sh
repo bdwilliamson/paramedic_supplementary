@@ -20,14 +20,14 @@ ml R/3.4.3-foss-2016b-fh1
 # arg 16 is number of sigma e's (actually arg 14)
 
 ## submit batch jobs
-sbatch -M beagle -c4 --array=1-${9} --requeue ./qpcr_sim.sh vary_sigma_e $1 $2 40 $3 $4 0 $5 $6 ${7} ${8} ${9} ${10} ${11} ${12} ${13} ${14}
+sbatch -M beagle -c4 --array=1-${9} --requeue ./shell/qpcr_sim.sh vary_sigma_e $1 $2 40 $3 $4 0 $5 $6 ${7} ${8} ${9} ${10} ${11} ${12} ${13} ${14}
 
-sbatch -M beagle -c4 --array=1-${9} --requeue ./qpcr_sim.sh vary_sigma_e $1 $2 40 $3 $4 0.1 $5 $6 ${7} ${8} ${9} ${10} ${11} ${12} ${13} ${14}
+sbatch -M beagle -c4 --array=1-${9} --requeue ./shell/qpcr_sim.sh vary_sigma_e $1 $2 40 $3 $4 0.1 $5 $6 ${7} ${8} ${9} ${10} ${11} ${12} ${13} ${14}
 
-sbatch -M beagle -c4 --array=1-${9} --requeue ./qpcr_sim.sh vary_sigma_e $1 $2 40 $3 $4 0.2 $5 $6 ${7} ${8} ${9} ${10} ${11} ${12} ${13} ${14}
+sbatch -M beagle -c4 --array=1-${9} --requeue ./shell/qpcr_sim.sh vary_sigma_e $1 $2 40 $3 $4 0.2 $5 $6 ${7} ${8} ${9} ${10} ${11} ${12} ${13} ${14}
 
-sbatch -M beagle -c4 --array=1-${9} --requeue ./qpcr_sim.sh vary_sigma_e $1 $2 40 $3 $4 0.3 $5 $6 ${7} ${8} ${9} ${10} ${11} ${12} ${13} ${14}
+sbatch -M beagle -c4 --array=1-${9} --requeue ./shell/qpcr_sim.sh vary_sigma_e $1 $2 40 $3 $4 0.3 $5 $6 ${7} ${8} ${9} ${10} ${11} ${12} ${13} ${14}
 
-sbatch -M beagle -c4 --array=1-${9} --requeue ./qpcr_sim.sh vary_sigma_e $1 $2 40 $3 $4 0.4 $5 $6 ${7} ${8} ${9} ${10} ${11} ${12} ${13} ${14}
+sbatch -M beagle -c4 --array=1-${9} --requeue ./shell/qpcr_sim.sh vary_sigma_e $1 $2 40 $3 $4 0.4 $5 $6 ${7} ${8} ${9} ${10} ${11} ${12} ${13} ${14}
 
-sbatch -M beagle -c4 --array=1-${9} --requeue ./qpcr_sim.sh vary_sigma_e $1 $2 40 $3 $4 0.5 $5 $6 ${7} ${8} ${9} ${10} ${11} ${12} ${13} ${14}
+sbatch -M beagle -c4 --array=1-${9} --requeue ./shell/qpcr_sim.sh vary_sigma_e $1 $2 40 $3 $4 0.5 $5 $6 ${7} ${8} ${9} ${10} ${11} ${12} ${13} ${14}

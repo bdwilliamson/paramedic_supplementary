@@ -18,4 +18,4 @@ qobss=${15}
 ns=${16}
 sigmaes=${17}
 
-Rscript qpcr_sim.R --sim-name "$sim_name" --stan-model "$stan_model" --N "$N" --q "$q" --q_obs "$q_obs" --beta "random" --corr "$corr" --sigma "$sigma" --n-chains "$n_chains" --iter "$iter" --warmup "$warmup" --parallel "$parallel" --B "$B" --num-qs "$qs" --num-qobss "$qobss" --num-ns "$ns" --num-sigmaes "$sigmaes" --use-most-abundant "$most_abundant"
+Rscript ../R/qpcr_sim.R --sim-name "$sim_name" --stan-model "$stan_model" --N "$N" --q "$q" --q_obs "$q_obs" --beta "random" --corr "$corr" --sigma "$sigma" --n-chains "$n_chains" --iter "$iter" --warmup "$warmup" --parallel "$parallel" --B "$B" --num-qs "$qs" --num-qobss "$qobss" --num-ns "$ns" --num-sigmaes "$sigmaes" --use-most-abundant "$most_abundant"

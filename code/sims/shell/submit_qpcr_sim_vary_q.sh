@@ -21,14 +21,14 @@ ml R/3.4.3-foss-2016b-fh1
 # number of taxa with qpcr, sixth position
 
 ## submit batch jobs
-sbatch -M beagle -c4 --array=1-${10} --requeue ./qpcr_sim.sh vary_q $1 $2 $3 2 $4 $5 $6 $7 ${8} ${9} ${10} ${11} ${12} ${13} ${14} ${15}
+sbatch -M beagle -c4 --array=1-${10} --requeue ./shell/qpcr_sim.sh vary_q $1 $2 $3 2 $4 $5 $6 $7 ${8} ${9} ${10} ${11} ${12} ${13} ${14} ${15}
 
-sbatch -M beagle -c4 --array=1-${10} --requeue ./qpcr_sim.sh vary_q $1 $2 $3 3 $4 $5 $6 $7 ${8} ${9} ${10} ${11} ${12} ${13} ${14} ${15}
+sbatch -M beagle -c4 --array=1-${10} --requeue ./shell/qpcr_sim.sh vary_q $1 $2 $3 3 $4 $5 $6 $7 ${8} ${9} ${10} ${11} ${12} ${13} ${14} ${15}
 
-sbatch -M beagle -c4 --array=1-${10} --requeue ./qpcr_sim.sh vary_q $1 $2 $3 4 $4 $5 $6 $7 ${8} ${9} ${10} ${11} ${12} ${13} ${14} ${15}
+sbatch -M beagle -c4 --array=1-${10} --requeue ./shell/qpcr_sim.sh vary_q $1 $2 $3 4 $4 $5 $6 $7 ${8} ${9} ${10} ${11} ${12} ${13} ${14} ${15}
 
-sbatch -M beagle -c4 --array=1-${10} --requeue ./qpcr_sim.sh vary_q $1 $2 $3 5 $4 $5 $6 $7 ${8} ${9} ${10} ${11} ${12} ${13} ${14} ${15}
+sbatch -M beagle -c4 --array=1-${10} --requeue ./shell/qpcr_sim.sh vary_q $1 $2 $3 5 $4 $5 $6 $7 ${8} ${9} ${10} ${11} ${12} ${13} ${14} ${15}
 
-sbatch -M beagle -c4 --array=1-${10} --requeue ./qpcr_sim.sh vary_q $1 $2 $3 6 $4 $5 $6 $7 ${8} ${9} ${10} ${11} ${12} ${13} ${14} ${15}
+sbatch -M beagle -c4 --array=1-${10} --requeue ./shell/qpcr_sim.sh vary_q $1 $2 $3 6 $4 $5 $6 $7 ${8} ${9} ${10} ${11} ${12} ${13} ${14} ${15}
 
-sbatch -M beagle -c4 --array=1-${10} --requeue ./qpcr_sim.sh vary_q $1 $2 $3 7 $4 $5 $6 $7 ${8} ${9} ${10} ${11} ${12} ${13} ${14} ${15}
+sbatch -M beagle -c4 --array=1-${10} --requeue ./shell/qpcr_sim.sh vary_q $1 $2 $3 7 $4 $5 $6 $7 ${8} ${9} ${10} ${11} ${12} ${13} ${14} ${15}
