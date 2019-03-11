@@ -36,7 +36,7 @@ The simulation may then be executed from the command line as follows:
 ./submit_qpcr_sim_vary_q.sh "../../stan/predict_qpcr.stan" 50 60 0 0 4 10500 10000 1 50 1 4 6 1 1
 ```
 
-This code creates 24 job arrays (one for each unique combination of $q$ and $q^\text{obs} \in \{2, \dots, 7\}$), each with 50 jobs.  
+This code creates 24 job arrays (one for each unique combination of $q$ and $q^\text{obs} \in \{2, \dots, 7\}$), each with 50 jobs. Once you have the results from this simulation, run the code in `load_qpcr_sim_vary_q.R` to generate plots and summaries of the results.
 
 ## The effect of varying $\sigma$
 
@@ -66,4 +66,4 @@ The simulation may then be executed from the command line as follows:
 ./submit_qpcr_sim_vary_sigma_e.sh "../../stan/predict_qpcr_with_varying_efficiency.stan" 50 7 0 4 10500 10000 1 50 1 1 1 1 6
 ```
 
-This code creates 12 job arrays (one for each unique combination of $\sigma$ and the Stan algorithm), each with 50 jobs.  
+This code creates 12 job arrays (one for each unique combination of $\sigma$ and the Stan algorithm), each with 50 jobs. Once you have the results from this simulation, run the code in `load_qpcr_sim_vary_sigma_e.R` to generate plots and summaries of the results.  
