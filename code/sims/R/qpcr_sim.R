@@ -7,8 +7,7 @@
 ## PURPOSE: replicate the qPCR estimation procedure across many simulated datasets
 ##          for a given Stan model
 ##
-## INPUTS: stan_model -- the Stan model file to use
-##         job_id -- which replicate are we?
+## INPUTS: listed below
 ##         
 ## OUTPUTS: a dataset and the Stan results
 ##################################################################################
@@ -23,7 +22,9 @@ library("argparse")
 source("data_gen_funcs.R")
 source("data_generator.R")
 
-## grab in the job id
+## grab in the job id; 
+## if you use a different HPC batch scheduler, edit "SLURM_ARRAY_TASK_ID" to the appropriate environment variable
+## if you are running locally, you'll need to set the job id locally to one of 1--50 (for each of the 50 replicates)
 job_id <- as.numeric(Sys.getenv("SLURM_ARRAY_TASK_ID"))
 
 ## set up dynamic simulation arguments
@@ -155,30 +156,3 @@ saveRDS(samps, file = sprintf("%s/%s_samps_jobid_%d_ad_%f_mt_%d_ab_%s.rds",
     adapt_delta,
     max_treedepth,
     as.character(args$use_most_abundant)))
-# ## make some traceplots (don't do this, because it always errors on beagle)
-# trace_plots_dir <- paste0(prefix, "traceplots/")
-# options(bitmapType = 'cairo')
-# if (!dir.exists(trace_plots_dir)){
-#     dir.create(trace_plots_dir, recursive = TRUE)
-# }
-# trace_plot_nms <- c("mu", "beta", "Sigma")
-# if (args$sigma != 0) {
-#     trace_plot_nms <- c(trace_plot_nms, "e")
-# }
-# fig_width <- fig_height <- 2590
-# cex <- 1.5
-# for (n in trace_plot_nms) {
-#     for (i in tail(1:args$q, args$q - args$q_obs)) {
-#         logi <- grepl(n, names(mod)) & !grepl("log", names(mod)) & grepl(i, names(mod))
-#         if (n == "mu") {
-#           logi <- grepl(n, names(mod)) & !grepl("log", names(mod)) & grepl(paste0(",", i, "]"), names(mod), fixed = TRUE)
-#         }
-#         if (n == "e") {
-#           logi <- grepl(n, names(mod)) & !grepl("log", names(mod)) & !grepl("beta", names(mod)) & grepl(paste0("[", i, "]"), names(mod), fixed = TRUE)
-#         }
-#         png(paste0(trace_plots_dir,strsplit(strsplit(args$stan_model, "/")[[1]], ".", fixed = TRUE)[[length(strsplit(strsplit(args$stan_model, "/")[[1]], ".", fixed = TRUE))]][1],"_ve_", args$sigma, "_id_", job_id, "_", n, "_taxon_", i, ".png"), width = fig_width, height = fig_height, res = 300, units = "px")
-#         plot(traceplot(mod, pars = names(mod)[logi]), cex = cex)
-#         dev.off()
-#   }
-# }
-# warnings()
