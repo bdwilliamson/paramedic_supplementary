@@ -31,17 +31,3 @@ sbatch -M beagle -c4 --array=1-${9} --requeue ./qpcr_sim.sh vary_sigma_e $1 $2 4
 sbatch -M beagle -c4 --array=1-${9} --requeue ./qpcr_sim.sh vary_sigma_e $1 $2 40 $3 $4 0.4 $5 $6 ${7} ${8} ${9} ${10} ${11} ${12} ${13} ${14}
 
 sbatch -M beagle -c4 --array=1-${9} --requeue ./qpcr_sim.sh vary_sigma_e $1 $2 40 $3 $4 0.5 $5 $6 ${7} ${8} ${9} ${10} ${11} ${12} ${13} ${14}
-
-# sbatch -M beagle -c4 --array=1-${8} --requeue ./qpcr_sim.sh vary_sigma_e $1 $2 40 7 $3 0.75 $4 $5 ${6} ${7} ${8} ${9} ${10} ${11} ${12} ${13}
-
-# sbatch -M beagle -c4 --array=1-${8} --requeue ./qpcr_sim.sh vary_sigma_e $1 $2 40 7 $3 1 $4 $5 ${6} ${7} ${8} ${9} ${10} ${11} ${12} ${13}
-
-# sbatch -M beagle -c4 --array=1-${8} --requeue ./qpcr_sim.sh vary_sigma_e $1 $2 40 7 $3 2 $4 $5 ${6} ${7} ${8} ${9} ${10} ${11} ${12} ${13}
-
-# sbatch -M beagle -c4 --array=1-${8} --requeue ./qpcr_sim.sh vary_sigma_e $1 $2 40 7 $3 3 $4 $5 ${6} ${7} ${8} ${9} ${10} ${11} ${12} ${13}
-
-# sbatch -M beagle -c4 --array=1-${8} --requeue ./qpcr_sim.sh vary_sigma_e $1 $2 40 7 $3 4 $4 $5 ${6} ${7} ${8} ${9} ${10} ${11} ${12} ${13}
-
-# sbatch -M beagle -c4 --array=1-${8} --requeue ./qpcr_sim.sh vary_sigma_e $1 $2 40 7 $3 5 $4 $5 ${6} ${7} ${8} ${9} ${10} ${11} ${12} ${13}
-
-# sbatch -M beagle -c4 --array=1-${8} --requeue ./qpcr_sim.sh vary_sigma_e $1 $2 40 7 $3 10 $4 $5 ${6} ${7} ${8} ${9} ${10} ${11} ${12} ${13}
