@@ -72,12 +72,6 @@ for (i in 1:length(args$q)) {
   mod_lst <- lapply(mod_nms_lst, read_func)
   data_lst <- lapply(data_nms_lst, read_func)
   
-  if (args$q[i] == 10 & args$most_abundant) { # need to realign the mus
-    for (j in 1:length(data_lst)) {
-      data_lst[[j]]$mu <- data_lst[[j]]$mu[, order(data_lst[[1]]$beta, decreasing = TRUE)]
-    }
-  }
-  
   ## (1) pair model summaries with relevant data, for all taxa, all q_obs
   summary_df <- do.call(rbind.data.frame, mapply(function(w, x, y, z, type) get_summaries(w, x, y, z, type), mod_lst, data_lst, NA, MoreArgs = list(z = 1:args$q[i], type = "no_ve"), SIMPLIFY = FALSE))
   ## pair with the monte-carlo id

@@ -85,8 +85,6 @@ if (args$read_data) {
       summary_df_ve$mc_id <- rep(NA, dim(summary_df_ve)[1])
       no_ve_mc_lst <- 1:50
       ve_mc_lst <- 1:50
-      if (i == 6 & j == 2) no_ve_mc_lst <- no_ve_mc_lst[-49]
-      if (i == 4 & j == 1) ve_mc_lst <- ve_mc_lst[-27]
       summary_df_no_ve$mc_id[!is.na(summary_df_no_ve$q)] <- rep(rep(no_ve_mc_lst, each = args$N*args$q), 1)
       summary_df_ve$mc_id[!is.na(summary_df_ve$q)] <- rep(rep(ve_mc_lst, each = args$N*args$q), 1)
       
