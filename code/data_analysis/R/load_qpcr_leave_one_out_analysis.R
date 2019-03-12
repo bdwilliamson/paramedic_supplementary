@@ -24,12 +24,23 @@ library("tidyr")
 library("dplyr")
 library("ggplot2")
 library("rstan")
-source(paste0(code_dir, "analyze_data/qpcr_analysis_helper_functions.R"))
+library("paramedic")
 source(paste0(code_dir, "naive_qpcr_estimator.R"))
 source(paste0(code_dir, "analyze_data/get_most_abundant_taxa.R"))
-source(paste0(code_dir, "gen_wald_interval.R"))
-source(paste0(code_dir, "gen_quantile_interval.R"))
-source(paste0(code_dir, "extract_posterior_summaries.R"))
+
+## FUNCTION: interval_long_to_wide
+## ARGS: intervals - long matrix of intervals
+##          digits - number of digits to round to
+## RETURNS: intervals as a wide matrix (one column for each taxon, one row for each woman)
+interval_long_to_wide <- function(intervals, digits, n_taxa, n_women) {
+  chr_intervals <- apply(intervals[, c(2, 3)], 1, function(x) paste0("[", round(x[1], digits), ", ", round(x[2], digits), "]"))
+  chr_intervals_df <- data.frame(taxon = 1:n_taxa, interval = chr_intervals, stringsAsFactors = FALSE)
+  wide_intervals_mat <- matrix(NA, nrow = n_women, ncol = n_taxa)
+  for (i in 1:n_women) {
+    wide_intervals_mat[i, ]  <- as.character(tidyr::spread(chr_intervals_df[1:n_taxa + (i-1)*n_taxa, ], taxon, interval))
+  }
+  return(wide_intervals_mat)
+}
 
 ## set up arguments
 q <- 7
