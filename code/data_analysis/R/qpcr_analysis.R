@@ -155,21 +155,23 @@ if (args$estimator == "naive") {
   samps <- NA
     mod_summ <- mod
 } else if (args$estimator == "no_ve") {
-    system.time(mod <- stan(file = paste0(stan_dir, "predict_qpcr.stan"), 
-                              data = stan_data_lst,
-                              iter = args$n_iter, warmup = args$n_burnin, chains = args$n_chains, seed = stan_seeds[1],
+    system.time(mod <- paramedic::paramedic(W = stan_data_lst$W, V = stan_data_lst$V,
+                                            N = stan_data_lst$N, q = stan_data_lst$q,
+                                            q_obs = stan_data_lst$q_obs,
+                                            stan_model = paste0(stan_dir, "predict_qpcr.stan"), 
+                                            n_iter = args$n_iter, n_burnin = args$n_burnin, n_chains = args$n_chains, 
+                                            stan_seed = stan_seeds[1],
+                                            params_to_save = c("mu", "beta", "Sigma"),
                               control = list(adapt_delta = adapt_delta, max_treedepth = max_treedepth),
-                              verbose = FALSE, open_progress = FALSE,
-                            pars = c("mu", "beta", "Sigma")))
+                              verbose = FALSE, open_progress = FALSE))
     mod_summ <- summary(mod, probs = c(0.025, 0.975))$summary
     samps <- rstan::extract(mod)
 } else {
-    system.time(mod <- stan(file = paste0(stan_dir, "predict_qpcr_with_varying_efficiency.stan"), 
-                              data = stan_data_lst,
-                              iter = args$n_iter, warmup = args$n_burnin, chains = args$n_chains, seed = stan_seeds[2],
+    system.time(mod <- paramedic::paramedic(n_iter = args$n_iter, n_burnin = args$n_burnin, n_chains = args$n_chains, 
+                                            stan_seed = stan_seeds[1],
+                                            params_to_save = c("mu", "beta", "Sigma", "e", "sigma"),
                               control = list(adapt_delta = adapt_delta, max_treedepth = max_treedepth),
-                              verbose = FALSE, open_progress = FALSE,
-                            pars = c("mu", "beta", "Sigma", "e", "sigma")))
+                              verbose = FALSE, open_progress = FALSE))
     mod_summ <- summary(mod, probs = c(0.025, 0.975))$summary
     samps <- rstan::extract(mod)
 }
