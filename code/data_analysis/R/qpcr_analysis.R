@@ -21,7 +21,8 @@ library("methods")
 library("rstan")
 library("argparse")
 library("Cairo")
-source(paste0(code_dir, "data_analysis/R/qpcr_analysis_helper_functions.R"))
+library("paramedic")
+
 source(paste0(code_dir, "naive_qpcr_estimator.R"))
 source(paste0(code_dir, "data_analysis/R/get_most_abundant_taxa.R"))
 
@@ -59,7 +60,7 @@ qpcr_inds <- 481:494
 br_inds <- 2:476
 pcr_plus_br_inds <- c(198, 476, 3, 2, 27, 64, 217) - 1
 ## process the data, yielding qpcr and br16s matrices
-data_lst <- process_data(full_data, br_inds, qpcr_inds, pcr_plus_br_inds, llod, m_min, args$div_num)
+data_lst <- paramedic::process_data(full_data, br_inds, qpcr_inds, pcr_plus_br_inds, llod, m_min, args$div_num)
 qpcr <- data_lst$qpcr
 br <- data_lst$br
 

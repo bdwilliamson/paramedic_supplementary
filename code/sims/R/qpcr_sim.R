@@ -17,6 +17,7 @@ library("methods")
 library("rstan")
 library("MASS")
 library("argparse")
+library("paramedic")
 
 ## load in required functions
 source("data_gen_funcs.R")
@@ -123,11 +124,13 @@ params_to_save <- if (grepl("varying_efficiency", args$stan_model)) {
 
 # run the model
 set.seed(stan_seed)
-system.time(mod <- stan(file = args$stan_model, data = dataset, iter = args$iter,
-    warmup = args$warmup, chains = args$n_chains, seed = stan_seed,
-    control = list(adapt_delta = adapt_delta, max_treedepth = max_treedepth),
-        verbose = FALSE, open_progress = FALSE,
-    pars = params_to_save))
+system.time(mod <- paramedic::paramedic(W = dataset$W, V = dataset$V, N = dataset$N, 
+                                        q = dataset$q, q_obs = dataset$q_obs, 
+                                        stan_model = args$stan_model, n_iter = args$iter,
+                                        n_burnin = args$warmup, n_chains = args$n_chains, stan_seed = stan_seed,
+                                        params_to_save = params_to_save,
+                                        control = list(adapt_delta = adapt_delta, max_treedepth = max_treedepth),
+                                        verbose = FALSE, open_progress = FALSE))
 
 mod_summ <- summary(mod, probs = c(0.025, 0.975))$summary
 
