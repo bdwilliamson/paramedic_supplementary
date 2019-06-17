@@ -22,16 +22,19 @@ library("Cairo")
 library("tidyr")
 library("dplyr")
 library("ggplot2")
+library("cowplot")
 library("paramedic")
 source("load_qpcr_sim_helpers.R") # provides function get_summaries
+source("code/R/naive_qpcr_estimator.R")
+source("code/R/gen_naive_interval.R")
 
 
 ## grab command-line arguments
 parser <- ArgumentParser()
 parser$add_argument("--sim-name", default = "vary_q", help = "name of the simulation")
-parser$add_argument("--stan-model", default = "predict_qpcr",
+parser$add_argument("--stan-model", default = "predict_qpcr_noncentered",
                     help = "Which Stan model file to use.")
-parser$add_argument("--N", type = "double", default = 50, help = "sample size")
+parser$add_argument("--N", type = "double", default = 100, help = "sample size")
 parser$add_argument("--q", nargs = "+", type = "double", default = c(10, 20, 40, 60), help = "how many taxa do we have?")
 parser$add_argument("--corr", type = "double", default = 0, help = "hyperparameter controlling the off-diagonal elements of Sigma.")
 parser$add_argument("--sigma", type = "double", default = 0, help = "SD of efficiencies (0 = no varying efficiency)")
@@ -45,8 +48,6 @@ parser$add_argument("--read-data", type = "double", default = 0, help = "whether
 args <- parser$parse_args()
 
 read_func <- function(x) tryCatch(readRDS(x), error = function(e) NA)
-
-# args$most_abundant <- 1
 
 plots_dir <- paste0("plots/", args$sim_name, "/ve_", args$sigma, "/cov_", args$corr, "/n_", args$N, "/")
 if (!dir.exists(plots_dir)) dir.create(plots_dir, recursive = TRUE)
@@ -68,62 +69,82 @@ for (i in 1:length(args$q)) {
   dir_mat <- expand.grid(job = 1:args$num_jobs, dir = results_dir)
   mod_nms_lst <- as.list(paste0(dir_mat$dir, args$stan_model, "_mod_jobid_", dir_mat$job, "_ad_", args$ad, "0000_mt_", args$mt, "_ab_", args$most_abundant, ".rds"))
   data_nms_lst <- as.list(paste0(dir_mat$dir, args$stan_model, "_data_jobid_", dir_mat$job, "_ad_", args$ad, "0000_mt_", args$mt, "_ab_", args$most_abundant, ".rds"))
+  samp_nms_lst <- as.list(paste0(dir_mat$dir, args$stan_model, "_samps_jobid_", dir_mat$job, "_ad_", args$ad, "0000_mt_", args$mt, "_ab_", args$most_abundant, ".rds"))
   
   mod_lst <- lapply(mod_nms_lst, read_func)
   data_lst <- lapply(data_nms_lst, read_func)
+  # samps_lst <- lapply(samp_nms_lst, read_func)
   
-  ## (1) pair model summaries with relevant data, for all taxa, all q_obs
+  ## (1) pair model summaries with relevant data, for all taxa, all q_obs; replace NA with samps_lst if you want
   summary_df <- do.call(rbind.data.frame, mapply(function(w, x, y, z, type) get_summaries(w, x, y, z, type), mod_lst, data_lst, NA, MoreArgs = list(z = 1:args$q[i], type = "no_ve"), SIMPLIFY = FALSE))
   ## pair with the monte-carlo id
-  summary_df$mc_id <- rep(rep(1:50, each = args$N*args$q[i]), length(args$q_obs))
+  summary_df$mc_id <- rep(NA, dim(summary_df)[1])
+  mc_lst_2 <- mc_lst_3 <- mc_lst_4 <- mc_lst_5 <- mc_lst_6 <- mc_lst_7 <- 1:50
+  
+  summary_df$mc_id[!is.na(summary_df$q)] <- c(rep(mc_lst_2, each = args$N*args$q[i]), rep(mc_lst_3, each = args$N*args$q[i]),
+                                                rep(mc_lst_4, each = args$N*args$q[i]), rep(mc_lst_5, each = args$N*args$q[i]),
+                                                rep(mc_lst_6, each = args$N*args$q[i]), rep(mc_lst_7, each = args$N*args$q[i]))
+
   
   ## (2) compute performance for each row
   performance_df <- summary_df %>%
     mutate(mse = (mu - est)^2, naive_mse = (mu - naive_est)^2,
            mspe = (qpcr - est)^2, naive_mspe = (qpcr - naive_est)^2,
            cover = cil <= mu & ciu >= mu,
+           wald_cover = wald_cred_cil <= mu & wald_cred_ciu >= mu,
+           naive_cover = naive_cil <= mu & naive_ciu >= mu,
            pred_cover = wald_pred_cil <= qpcr & wald_pred_ciu >= qpcr, # choose wald
+           naive_pred_cover = naive_wald_pred_cil <= qpcr & naive_wald_pred_ciu >= qpcr,
            width = abs(wald_pred_ciu - wald_pred_cil),
            bias = mu - est, naive_bias = mu - naive_est)
   
-  # performance_df$include_taxa_in_avg <- apply(performance_df, 1, function(x) x[4] %in% tail(1:x[1], x[1] - x[2]))
-  performance_df$include_taxa_in_avg <- performance_df$taxon_id > performance_df$q_obs
+  performance_df$include_taxa_in_v_avg <- performance_df$taxon_id > performance_df$q_obs
   
   ## (3) average over MC reps for each taxon
   mc_averaged_performance <- performance_df %>%
-    select(q, q_obs, subj_id, taxon_id, mse, naive_mse, mspe, naive_mspe, cover, pred_cover, width, bias, naive_bias) %>%
+    filter(include_taxa_in_avg) %>%
+    select(q, q_obs, subj_id, taxon_id, mse, naive_mse, mspe, naive_mspe, cover, naive_cover, wald_cover,
+           pred_cover, naive_pred_cover, width, bias, naive_bias) %>%
     group_by(q, q_obs, subj_id, taxon_id) %>%
-    summarize(mse = mean(mse), naive_mse = mean(naive_mse), 
-              mspe = mean(mspe), naive_mspe = mean(naive_mspe), 
-              cover = mean(cover), pred_cover = mean(pred_cover),
-              width = mean(width), bias = mean(bias, na.rm = TRUE), naive_bias = mean(naive_bias, na.rm = TRUE)) %>%
+    summarize(mse = mean(mse, na.rm = TRUE), naive_mse = mean(naive_mse, na.rm = TRUE), 
+              mspe = mean(mspe, na.rm = TRUE), naive_mspe = mean(naive_mspe, na.rm = TRUE), 
+              cover = mean(cover, na.rm = TRUE), naive_cover = mean(naive_cover, na.rm = TRUE), wald_cover = mean(wald_cover, na.rm = TRUE),
+              pred_cover = mean(pred_cover, na.rm = TRUE), naive_pred_cover = mean(naive_pred_cover, na.rm = TRUE),
+              width = mean(width, na.rm = TRUE), bias = mean(bias, na.rm = TRUE), naive_bias = mean(naive_bias, na.rm = TRUE)) %>%
     ungroup()
   
-  ## (4) set flag for taxa of interest
-  mc_averaged_performance$include_taxa_in_avg <- apply(mc_averaged_performance, 1, 
-                                                       function(x) x[4] %in% tail(1:x[1], x[1] - x[2]))
+  ## (4) set flag for taxa of interest: for V, need taxon_id > q^obs
+  mc_averaged_performance$include_taxa_in_v_avg <- apply(mc_averaged_performance, 1, 
+                                                       function(x) ifelse(!is.na(x[1]), x[4] %in% tail(1:x[1], x[1] - x[2]), NA))
   ## (5) average over taxa of interest for each q_obs
-  performance_across_taxa <- mc_averaged_performance %>%
-    group_by(q, q_obs, subj_id) %>%
-    filter(include_taxa_in_avg) %>%
+  performance_across_taxa_mu <- mc_averaged_performance %>% 
+    group_by(q, q_obs, subj_id) %>% 
     summarize(mse = mean(mse), naive_mse = mean(naive_mse),
-              mspe = mean(mspe), naive_mspe = mean(naive_mspe),
-              cover = mean(cover), pred_cover = mean(pred_cover),
-              width = mean(width), bias = mean(bias), naive_bias = mean(naive_bias))
+              cover = mean(cover, na.rm = TRUE), naive_cover = mean(naive_cover, na.rm = TRUE), wald_cover = mean(wald_cover, na.rm = TRUE),
+              bias = mean(bias), naive_bias = mean(naive_bias))
+  performance_across_taxa_v <- mc_averaged_performance %>%
+    group_by(q, q_obs, subj_id) %>%
+    filter(include_taxa_in_v_avg) %>%
+    summarize(mspe = mean(mspe), naive_mspe = mean(naive_mspe),
+              pred_cover = mean(pred_cover), naive_pred_cover = mean(naive_pred_cover, na.rm = TRUE),
+              width = mean(width))
+  performance_across_taxa <- left_join(performance_across_taxa_mu, performance_across_taxa_v, by = c("q", "q_obs", "subj_id"))
   
   ## (6) average over n, for each q_obs
   average_over_n <- performance_across_taxa %>%
     group_by(q_obs) %>%
     summarize(mse = mean(mse), naive_mse = mean(naive_mse),
               mspe = mean(mspe), naive_mspe = mean(naive_mspe),
-              cover = mean(cover), pred_cover = mean(pred_cover),
+              cover = mean(cover), naive_cover = mean(naive_cover), wald_cover = mean(wald_cover),
+              pred_cover = mean(pred_cover), naive_pred_cover = mean(naive_pred_cover),
               width = mean(width), bias = mean(bias), naive_bias = mean(naive_bias))
   average_over_n_single_taxon <- mc_averaged_performance %>%
     filter(taxon_id == 10) %>%
     group_by(q_obs) %>%
     summarize(mse = mean(mse), naive_mse = mean(naive_mse),
               mspe = mean(mspe), naive_mspe = mean(naive_mspe),
-              cover = mean(cover), pred_cover = mean(pred_cover),
+              cover = mean(cover), naive_cover = mean(naive_cover), wald_cover = mean(wald_cover),
+              pred_cover = mean(pred_cover), naive_pred_cover = mean(naive_pred_cover),
               width = mean(width), bias = mean(bias), naive_bias = mean(naive_bias))
   
   ## (5) add rmse, transpose
@@ -135,43 +156,162 @@ for (i in 1:length(args$q)) {
            rmspe = sqrt(mspe), naive_rmspe = sqrt(naive_mspe))
   
   ## (6) average only over n, taxa
-  average_over_n_taxa <- performance_df %>%
+  ## (a) filter by colSums(W) > 0
+  average_over_n_taxa_mu <- performance_df %>% 
     filter(include_taxa_in_avg) %>% 
     select(q, q_obs, subj_id, taxon_id, mc_id, mse, naive_mse, mspe, naive_mspe, 
-           cover, pred_cover, width, bias, naive_bias) %>%
+           cover, naive_cover, wald_cover, pred_cover, naive_pred_cover, width, bias, naive_bias) %>%
     group_by(q, q_obs, mc_id) %>%
-    summarize(mse = mean(mse), naive_mse = mean(naive_mse), 
-              mspe = mean(mspe), naive_mspe = mean(naive_mspe), 
-              cover = mean(cover), pred_cover = mean(pred_cover),
-              width = mean(width), bias = mean(bias, na.rm = TRUE), naive_bias = mean(naive_bias, na.rm = TRUE)) %>% 
+    summarize(mse = mean(mse, na.rm = TRUE), naive_mse = mean(naive_mse, na.rm = TRUE),
+              cover = mean(cover, na.rm = TRUE), naive_cover = mean(naive_cover, na.rm = TRUE), wald_cover = mean(wald_cover, na.rm = TRUE),
+              bias = mean(bias, na.rm = TRUE), naive_bias = mean(naive_bias, na.rm = TRUE)) %>% 
+    ungroup()
+    
+  average_over_n_taxa_v <- performance_df %>%
+    filter(include_taxa_in_v_avg, include_taxa_in_avg) %>% 
+    select(q, q_obs, subj_id, taxon_id, mc_id, mse, naive_mse, mspe, naive_mspe, 
+           cover, pred_cover, naive_pred_cover, width, bias, naive_bias) %>%
+    group_by(q, q_obs, mc_id) %>%
+    summarize(mspe = mean(mspe, na.rm = TRUE), naive_mspe = mean(naive_mspe, na.rm = TRUE), 
+              pred_cover = mean(pred_cover, na.rm = TRUE), naive_pred_cover = mean(naive_pred_cover, na.rm = TRUE),
+              width = mean(width, na.rm = TRUE)) %>% 
+    ungroup()
+  average_over_n_taxa <- left_join(average_over_n_taxa_mu, average_over_n_taxa_v, by = c("q", "q_obs", "mc_id"))
+  
+  ## (b) filter by colMeans(W) > 0.5
+  average_over_n_taxa_mu_mn <- performance_df %>% 
+    filter(include_taxa_in_avg_w_mn) %>% 
+    select(q, q_obs, subj_id, taxon_id, mc_id, mse, naive_mse, mspe, naive_mspe, 
+           cover, naive_cover, wald_cover, pred_cover, naive_pred_cover, width, bias, naive_bias) %>%
+    group_by(q, q_obs, mc_id) %>%
+    summarize(mse = mean(mse, na.rm = TRUE), naive_mse = mean(naive_mse, na.rm = TRUE),
+              cover = mean(cover, na.rm = TRUE), naive_cover = mean(naive_cover, na.rm = TRUE), wald_cover = mean(wald_cover),
+              bias = mean(bias, na.rm = TRUE), naive_bias = mean(naive_bias, na.rm = TRUE)) %>% 
     ungroup()
   
+  average_over_n_taxa_v_mn <- performance_df %>%
+    filter(include_taxa_in_v_avg, include_taxa_in_avg_w_mn) %>% 
+    select(q, q_obs, subj_id, taxon_id, mc_id, mse, naive_mse, mspe, naive_mspe, 
+           cover, pred_cover, naive_pred_cover, width, bias, naive_bias) %>%
+    group_by(q, q_obs, mc_id) %>%
+    summarize(mspe = mean(mspe, na.rm = TRUE), naive_mspe = mean(naive_mspe, na.rm = TRUE), 
+              pred_cover = mean(pred_cover, na.rm = TRUE), naive_pred_cover = mean(naive_pred_cover, na.rm = TRUE),
+              width = mean(width, na.rm = TRUE)) %>% 
+    ungroup()
+  average_over_n_taxa_mn <- left_join(average_over_n_taxa_mu_mn, average_over_n_taxa_v_mn, by = c("q", "q_obs", "mc_id"))
+  
+  ## (c) filter by colVars(W) > 1
+  average_over_n_taxa_mu_var <- performance_df %>% 
+    filter(include_taxa_in_avg_var) %>% 
+    select(q, q_obs, subj_id, taxon_id, mc_id, mse, naive_mse, mspe, naive_mspe, 
+           cover, naive_cover, wald_cover, pred_cover, naive_pred_cover, width, bias, naive_bias) %>%
+    group_by(q, q_obs, mc_id) %>%
+    summarize(mse = mean(mse, na.rm = TRUE), naive_mse = mean(naive_mse, na.rm = TRUE),
+              cover = mean(cover, na.rm = TRUE), naive_cover = mean(naive_cover, na.rm = TRUE), wald_cover = mean(wald_cover, na.rm = TRUE),
+              bias = mean(bias, na.rm = TRUE), naive_bias = mean(naive_bias, na.rm = TRUE)) %>% 
+    ungroup()
+  
+  average_over_n_taxa_v_var <- performance_df %>%
+    filter(include_taxa_in_v_avg, include_taxa_in_avg_var) %>% 
+    select(q, q_obs, subj_id, taxon_id, mc_id, mse, naive_mse, mspe, naive_mspe, 
+           cover, pred_cover, naive_pred_cover, width, bias, naive_bias) %>%
+    group_by(q, q_obs, mc_id) %>%
+    summarize(mspe = mean(mspe, na.rm = TRUE), naive_mspe = mean(naive_mspe, na.rm = TRUE), 
+              pred_cover = mean(pred_cover, na.rm = TRUE), naive_pred_cover = mean(naive_pred_cover, na.rm = TRUE),
+              width = mean(width, na.rm = TRUE)) %>% 
+    ungroup()
+  average_over_n_taxa_var <- left_join(average_over_n_taxa_mu_var, average_over_n_taxa_v_var, by = c("q", "q_obs", "mc_id"))
+  
   ## (7) average only over n
-  average_over_n <- performance_df %>% 
+  ## (a) filter by colSums(W) > 0
+  average_over_n_mu <- performance_df %>% 
     filter(include_taxa_in_avg) %>% 
     select(q, q_obs, subj_id, taxon_id, mc_id, mse, naive_mse, mspe, naive_mspe,
-           cover, pred_cover, width, bias, naive_bias) %>% 
+           cover, naive_cover, wald_cover, pred_cover, naive_pred_cover, width, bias, naive_bias) %>% 
     group_by(q, q_obs, taxon_id, mc_id) %>% 
-    summarize(mse = mean(mse), naive_mse = mean(naive_mse), 
-              mspe = mean(mspe), naive_mspe = mean(naive_mspe), 
-              cover = mean(cover), pred_cover = mean(pred_cover),
-              width = mean(width), bias = mean(bias, na.rm = TRUE), naive_bias = mean(naive_bias, na.rm = TRUE)) %>% 
+    summarize(mse = mean(mse, na.rm = TRUE), naive_mse = mean(naive_mse, na.rm = TRUE), 
+              cover = mean(cover, na.rm = TRUE), naive_cover = mean(naive_cover, na.rm = TRUE), wald_cover = mean(wald_cover, na.rm = TRUE),
+              bias = mean(bias, na.rm = TRUE), naive_bias = mean(naive_bias, na.rm = TRUE)) %>% 
     ungroup()
+  average_over_n_v <- performance_df %>% 
+    filter(include_taxa_in_v_avg, include_taxa_in_avg) %>% 
+    select(q, q_obs, subj_id, taxon_id, mc_id, mse, naive_mse, mspe, naive_mspe,
+           cover, naive_cover, pred_cover, naive_pred_cover, width, bias, naive_bias) %>% 
+    group_by(q, q_obs, taxon_id, mc_id) %>% 
+    summarize(mspe = mean(mspe, na.rm = TRUE), naive_mspe = mean(naive_mspe, na.rm = TRUE), 
+              pred_cover = mean(pred_cover, na.rm = TRUE), naive_pred_cover = mean(naive_pred_cover, na.rm = TRUE),
+              width = mean(width, na.rm = TRUE)) %>% 
+    ungroup()
+  average_over_n <- left_join(average_over_n_mu, average_over_n_v, by = c("q", "q_obs", "taxon_id", "mc_id"))
+  
+  ## (b) filter by colMeans(W) > 0
+  average_over_n_mu_mn <- performance_df %>% 
+    filter(include_taxa_in_avg_w_mn) %>% 
+    select(q, q_obs, subj_id, taxon_id, mc_id, mse, naive_mse, mspe, naive_mspe,
+           cover, naive_cover, wald_cover, pred_cover, naive_pred_cover, width, bias, naive_bias) %>% 
+    group_by(q, q_obs, taxon_id, mc_id) %>% 
+    summarize(mse = mean(mse, na.rm = TRUE), naive_mse = mean(naive_mse, na.rm = TRUE), 
+              cover = mean(cover, na.rm = TRUE), naive_cover = mean(naive_cover, na.rm = TRUE), wald_cover = mean(wald_cover, na.rm = TRUE),
+              bias = mean(bias, na.rm = TRUE), naive_bias = mean(naive_bias, na.rm = TRUE)) %>% 
+    ungroup()
+  average_over_n_v_mn <- performance_df %>% 
+    filter(include_taxa_in_v_avg, include_taxa_in_avg_w_mn) %>% 
+    select(q, q_obs, subj_id, taxon_id, mc_id, mse, naive_mse, mspe, naive_mspe,
+           cover, naive_cover, pred_cover, naive_pred_cover, width, bias, naive_bias) %>% 
+    group_by(q, q_obs, taxon_id, mc_id) %>% 
+    summarize(mspe = mean(mspe, na.rm = TRUE), naive_mspe = mean(naive_mspe, na.rm = TRUE), 
+              pred_cover = mean(pred_cover, na.rm = TRUE), naive_pred_cover = mean(naive_pred_cover, na.rm = TRUE),
+              width = mean(width, na.rm = TRUE)) %>% 
+    ungroup()
+  average_over_n_mn <- left_join(average_over_n_mu_mn, average_over_n_v_mn, by = c("q", "q_obs", "taxon_id", "mc_id"))
+  
+  ## (a) filter by colVars(W) > 0
+  average_over_n_mu_var <- performance_df %>% 
+    filter(include_taxa_in_avg_var) %>% 
+    select(q, q_obs, subj_id, taxon_id, mc_id, mse, naive_mse, mspe, naive_mspe,
+           cover, naive_cover, wald_cover, pred_cover, naive_pred_cover, width, bias, naive_bias) %>% 
+    group_by(q, q_obs, taxon_id, mc_id) %>% 
+    summarize(mse = mean(mse, na.rm = TRUE), naive_mse = mean(naive_mse, na.rm = TRUE), 
+              cover = mean(cover, na.rm = TRUE), naive_cover = mean(naive_cover, na.rm = TRUE), wald_cover = mean(wald_cover, na.rm = TRUE),
+              bias = mean(bias, na.rm = TRUE), naive_bias = mean(naive_bias, na.rm = TRUE)) %>% 
+    ungroup()
+  average_over_n_v_var <- performance_df %>% 
+    filter(include_taxa_in_v_avg, include_taxa_in_avg_var) %>% 
+    select(q, q_obs, subj_id, taxon_id, mc_id, mse, naive_mse, mspe, naive_mspe,
+           cover, naive_cover, pred_cover, naive_pred_cover, width, bias, naive_bias) %>% 
+    group_by(q, q_obs, taxon_id, mc_id) %>% 
+    summarize(mspe = mean(mspe, na.rm = TRUE), naive_mspe = mean(naive_mspe, na.rm = TRUE), 
+              pred_cover = mean(pred_cover, na.rm = TRUE), naive_pred_cover = mean(naive_pred_cover, na.rm = TRUE),
+              width = mean(width, na.rm = TRUE)) %>% 
+    ungroup()
+  average_over_n_var <- left_join(average_over_n_mu_var, average_over_n_v_var, by = c("q", "q_obs", "taxon_id", "mc_id"))
   
   output_performances[[i]] <- performance_matrix
   output_performances_single_taxon[[i]] <- performance_matrix_single_taxon
   output_performances_avg_over_taxa_n[[i]] <- average_over_n_taxa
   output_performances_avg_over_n[[i]] <- average_over_n
+  output_performances_avg_over_taxa_n_mn[[i]] <- average_over_n_taxa_mn
+  output_performances_avg_over_n_mn[[i]] <- average_over_n_mn
+  output_performances_avg_over_taxa_n_var[[i]] <- average_over_n_taxa_var
+  output_performances_avg_over_n_var[[i]] <- average_over_n_var
 }
 saveRDS(output_performances, paste0("results/", args$sim_name, "/ve_", args$sigma, "/cov_", args$corr, "/n_", args$N, "/output_performances_ab_", args$most_abundant, ".rds"))
 saveRDS(output_performances_single_taxon, paste0("results/", args$sim_name, "/ve_", args$sigma, "/cov_", args$corr, "/n_", args$N, "/output_performances_single_taxon_ab_", args$most_abundant, ".rds"))
 saveRDS(output_performances_avg_over_taxa_n, paste0("results/", args$sim_name, "/ve_", args$sigma, "/cov_", args$corr, "/n_", args$N, "/output_performances_avg_over_taxa_n_ab_", args$most_abundant, ".rds"))
 saveRDS(output_performances_avg_over_n, paste0("results/", args$sim_name, "/ve_", args$sigma, "/cov_", args$corr, "/n_", args$N, "/output_performances_avg_over_n_ab_", args$most_abundant, ".rds"))
+saveRDS(output_performances_avg_over_taxa_n_mn, paste0("results/", args$sim_name, "/ve_", args$sigma, "/cov_", args$corr, "/n_", args$N, "/output_performances_avg_over_taxa_n_mn_ab_", args$most_abundant, ".rds"))
+saveRDS(output_performances_avg_over_n_mn, paste0("results/", args$sim_name, "/ve_", args$sigma, "/cov_", args$corr, "/n_", args$N, "/output_performances_avg_over_n_mn_ab_", args$most_abundant, ".rds"))
+saveRDS(output_performances_avg_over_taxa_n_var, paste0("results/", args$sim_name, "/ve_", args$sigma, "/cov_", args$corr, "/n_", args$N, "/output_performances_avg_over_taxa_n_var_ab_", args$most_abundant, ".rds"))
+saveRDS(output_performances_avg_over_n_var, paste0("results/", args$sim_name, "/ve_", args$sigma, "/cov_", args$corr, "/n_", args$N, "/output_performances_avg_over_n_var_ab_", args$most_abundant, ".rds"))
 } else {
   output_performances <- readRDS(paste0("results/", args$sim_name, "/ve_", args$sigma, "/cov_", args$corr, "/n_", args$N, "/output_performances_ab_", args$most_abundant, ".rds"))
   output_performances_single_taxon <- readRDS(paste0("results/", args$sim_name, "/ve_", args$sigma, "/cov_", args$corr, "/n_", args$N, "/output_performances_single_taxon_ab_", args$most_abundant, ".rds"))
   output_performances_avg_over_taxa_n <- readRDS(paste0("results/", args$sim_name, "/ve_", args$sigma, "/cov_", args$corr, "/n_", args$N, "/output_performances_avg_over_taxa_n_ab_", args$most_abundant, ".rds"))
   output_performances_avg_over_n <- readRDS(paste0("results/", args$sim_name, "/ve_", args$sigma, "/cov_", args$corr, "/n_", args$N, "/output_performances_avg_over_n_ab_", args$most_abundant, ".rds"))
+  output_performances_avg_over_taxa_n_mn <- readRDS(paste0("results/", args$sim_name, "/ve_", args$sigma, "/cov_", args$corr, "/n_", args$N, "/output_performances_avg_over_taxa_n_mn_ab_", args$most_abundant, ".rds"))
+  output_performances_avg_over_n_mn <- readRDS(paste0("results/", args$sim_name, "/ve_", args$sigma, "/cov_", args$corr, "/n_", args$N, "/output_performances_avg_over_n_mn_ab_", args$most_abundant, ".rds"))
+  output_performances_avg_over_taxa_n_var <- readRDS(paste0("results/", args$sim_name, "/ve_", args$sigma, "/cov_", args$corr, "/n_", args$N, "/output_performances_avg_over_taxa_n_var_ab_", args$most_abundant, ".rds"))
+  output_performances_avg_over_n_var <- readRDS(paste0("results/", args$sim_name, "/ve_", args$sigma, "/cov_", args$corr, "/n_", args$N, "/output_performances_avg_over_n_var_ab_", args$most_abundant, ".rds"))
 }
 
 ## transform to lists with a matrix for each q_obs (so that it can be plotted on x-axis)
@@ -182,10 +322,43 @@ q_obs_performance_single_taxon <- q_to_q_obs(output_performances_single_taxon)
 performance_avg_over_taxa_n <- do.call(rbind.data.frame, output_performances_avg_over_taxa_n)
 performance_avg_over_taxa_n$grouping <- paste(performance_avg_over_taxa_n$q, performance_avg_over_taxa_n$q_obs, sep = "_")
 
+performance_avg_over_taxa_n_mn <- do.call(rbind.data.frame, output_performances_avg_over_taxa_n_mn)
+performance_avg_over_taxa_n_mn$grouping <- paste(performance_avg_over_taxa_n_mn$q, performance_avg_over_taxa_n_mn$q_obs, sep = "_")
+
+performance_avg_over_taxa_n_var <- do.call(rbind.data.frame, output_performances_avg_over_taxa_n_var)
+performance_avg_over_taxa_n_var$grouping <- paste(performance_avg_over_taxa_n_var$q, performance_avg_over_taxa_n_var$q_obs, sep = "_")
+
+## based on colSums(W)
 performance_by_type <- performance_avg_over_taxa_n %>% 
+  filter(!is.na(q)) %>% 
   mutate(no_ve_mse = mse, no_ve_mspe = mspe, no_ve_cover = cover, no_ve_pred_cover = pred_cover,
+         no_ve_wald_cover = wald_cover,
          no_ve_width = width, no_ve_bias = bias) %>% 
-  select(-mse, -mspe, -cover, -pred_cover, -width, -bias) %>% 
+  select(-mse, -mspe, -cover, -pred_cover, -width, -bias, -wald_cover) %>% 
+  gather(key, value, -q, -q_obs, -mc_id, -grouping) %>% 
+  tidyr::extract(key, c("estimator", "measure"), regex = "(n*.*ve)._?([qmwcbp].*)") %>% 
+  spread(measure, value) %>% 
+  mutate(rmse = sqrt(mse), rmspe = sqrt(mspe))
+
+## based on colMeans(W)
+performance_by_type_mn <- performance_avg_over_taxa_n_mn %>% 
+  filter(!is.na(q)) %>% 
+  mutate(no_ve_mse = mse, no_ve_mspe = mspe, no_ve_cover = cover, no_ve_pred_cover = pred_cover,
+         no_ve_wald_cover = wald_cover,
+         no_ve_width = width, no_ve_bias = bias) %>% 
+  select(-mse, -mspe, -cover, -pred_cover, -width, -bias, -wald_cover) %>% 
+  gather(key, value, -q, -q_obs, -mc_id, -grouping) %>% 
+  tidyr::extract(key, c("estimator", "measure"), regex = "(n*.*ve)._?([qmwcbp].*)") %>% 
+  spread(measure, value) %>% 
+  mutate(rmse = sqrt(mse), rmspe = sqrt(mspe))
+
+## based on colVars(W)
+performance_by_type_var <- performance_avg_over_taxa_n_var %>% 
+  filter(!is.na(q)) %>% 
+  mutate(no_ve_mse = mse, no_ve_mspe = mspe, no_ve_cover = cover, no_ve_pred_cover = pred_cover,
+         no_ve_wald_cover = wald_cover,
+         no_ve_width = width, no_ve_bias = bias) %>% 
+  select(-mse, -mspe, -cover, -pred_cover, -width, -bias, -wald_cover) %>% 
   gather(key, value, -q, -q_obs, -mc_id, -grouping) %>% 
   tidyr::extract(key, c("estimator", "measure"), regex = "(n*.*ve)._?([qmwcbp].*)") %>% 
   spread(measure, value) %>% 
@@ -195,10 +368,43 @@ performance_by_type <- performance_avg_over_taxa_n %>%
 performance_avg_over_n <- do.call(rbind.data.frame, output_performances_avg_over_n)
 performance_avg_over_n$grouping <- paste(performance_avg_over_n$q, performance_avg_over_n$q_obs, performance_avg_over_n$taxon_id, sep = "_")
 
+performance_avg_over_n_mn <- do.call(rbind.data.frame, output_performances_avg_over_n_mn)
+performance_avg_over_n_mn$grouping <- paste(performance_avg_over_n_mn$q, performance_avg_over_n_mn$q_obs, performance_avg_over_n_mn$taxon_id, sep = "_")
+
+performance_avg_over_n_var <- do.call(rbind.data.frame, output_performances_avg_over_n_var)
+performance_avg_over_n_var$grouping <- paste(performance_avg_over_n_var$q, performance_avg_over_n_var$q_obs, performance_avg_over_n_var$taxon_id, sep = "_")
+
+## colSums(W)
 performance_by_type_over_n <- performance_avg_over_n %>% 
+  filter(!is.na(q)) %>% 
   mutate(no_ve_mse = mse, no_ve_mspe = mspe, no_ve_cover = cover, no_ve_pred_cover = pred_cover,
+         no_ve_wald_cover = wald_cover,
          no_ve_width = width, no_ve_bias = bias) %>% 
-  select(-mse, -mspe, -cover, -pred_cover, -width, -bias) %>% 
+  select(-mse, -mspe, -cover, -pred_cover, -width, -bias, -wald_cover) %>% 
+  gather(key, value, -q, -q_obs, -mc_id, -taxon_id, -grouping) %>% 
+  tidyr::extract(key, c("estimator", "measure"), regex = "(n*.*ve)._?([qmwcbp].*)") %>% 
+  spread(measure, value) %>% 
+  mutate(rmse = sqrt(mse), rmspe = sqrt(mspe))
+
+## colMeans(W)
+performance_by_type_over_n_mn <- performance_avg_over_n_mn %>% 
+  filter(!is.na(q)) %>% 
+  mutate(no_ve_mse = mse, no_ve_mspe = mspe, no_ve_cover = cover, no_ve_pred_cover = pred_cover,
+         no_ve_wald_cover = wald_cover,
+         no_ve_width = width, no_ve_bias = bias) %>% 
+  select(-mse, -mspe, -cover, -pred_cover, -width, -bias, -wald_cover) %>% 
+  gather(key, value, -q, -q_obs, -mc_id, -taxon_id, -grouping) %>% 
+  tidyr::extract(key, c("estimator", "measure"), regex = "(n*.*ve)._?([qmwcbp].*)") %>% 
+  spread(measure, value) %>% 
+  mutate(rmse = sqrt(mse), rmspe = sqrt(mspe))
+
+## colVars(W)
+performance_by_type_over_n_var <- performance_avg_over_n_var %>% 
+  filter(!is.na(q)) %>% 
+  mutate(no_ve_mse = mse, no_ve_mspe = mspe, no_ve_cover = cover, no_ve_pred_cover = pred_cover,
+         no_ve_wald_cover = wald_cover,
+         no_ve_width = width, no_ve_bias = bias) %>% 
+  select(-mse, -mspe, -cover, -pred_cover, -width, -bias, -wald_cover) %>% 
   gather(key, value, -q, -q_obs, -mc_id, -taxon_id, -grouping) %>% 
   tidyr::extract(key, c("estimator", "measure"), regex = "(n*.*ve)._?([qmwcbp].*)") %>% 
   spread(measure, value) %>% 
@@ -231,31 +437,38 @@ axis_cex <- 1.75
 ## create the plots
 ## first, get prediction interval coverage (only the proposed estimator)
 pred_cover <- performance_by_type %>%
-  ggplot(aes(x = q_obs, y = pred_cover, group = grouping, fill = factor(q))) +
+  ggplot(aes(x = q_obs, y = pred_cover, group = factor(paste(grouping, "_", estimator, sep = "")), 
+             fill = factor(q), alpha = factor(estimator, levels = c("naive", "no_ve"), ordered = FALSE, labels = c("Naive", "Proposed, no ve")))) +
   xlab(expression(q^obs)) +
   ylab(expression(Coverage)) + 
   labs(fill = "q") +
-  ggtitle("Prediction interval coverage") +
-  geom_boxplot(size = 0.5, position = position_dodge(0.5), outlier.shape = NA) +
+  ggtitle("Prediction interval coverage for V") +
+  geom_boxplot(width = 1, position = position_dodge(0.8), outlier.shape = NA) +
   scale_fill_manual(values = cols) +
+  scale_alpha_discrete(range = c(0.5, 1)) +
   geom_hline(yintercept = 0.95, linetype = "dashed", color = "red") +
-  ylim(c(0.7, 1)) +
-  # guides(fill = FALSE) +
-  theme_bw() +
-  theme(legend.position = c(0.9, 0.3))
+  ylim(c(0.85, 1)) +
+  guides(fill = FALSE, alpha = FALSE)
 ## next, get credible interval coverage
 cred_cover <- performance_by_type %>%
-  ggplot(aes(x = q_obs, y = cover, group = grouping, fill = factor(q))) +
+  ggplot(aes(x = q_obs, y = cover, group = factor(paste(grouping, "_", estimator, sep = "")), 
+             fill = factor(q), alpha = factor(estimator, levels = c("naive", "no_ve"), ordered = FALSE, labels = c("Naive", "Proposed, no ve")))) +
   xlab(expression(q^obs)) +
   ylab(expression(Coverage)) + 
   labs(fill = "q") +
-  ggtitle("Credible interval coverage") +
-  geom_boxplot(size = 0.5, position = position_dodge(0.5), outlier.shape = NA) +
+  labs(alpha = "Estimator") +
+  ggtitle(expression(bold(paste("Interval coverage for ", mu, sep = "")))) +
+  geom_boxplot(width = 1, position = position_dodge(0.8), outlier.shape = NA) +
   scale_fill_manual(values = cols) +
+  scale_alpha_discrete(range = c(0.5, 1)) +
   geom_hline(yintercept = 0.95, linetype = "dashed", color = "red") +
-  ylim(c(0.7, 1)) +
-  guides(fill = FALSE) +
-  theme_bw()
+  ylim(c(0.85, 1)) +
+  guides(alpha = guide_legend(override.aes = list(fill = "blue"))) +
+  theme(legend.position = c(0.05, 0.15),
+        legend.text = element_text(size = 10),
+        legend.title = element_text(size = 12),
+        legend.spacing = unit(.1, "cm"),
+        legend.box = "horizontal")
 
 ## get rmspe
 rmspe <- performance_by_type %>% 
@@ -265,15 +478,12 @@ rmspe <- performance_by_type %>%
   ylab(expression(RMSPE)) + 
   ggtitle("Root mean squared prediction error") +
   geom_boxplot(width = 1, position = position_dodge(width = 0.7, preserve = "total"), outlier.shape = NA) +
-  labs(alpha = "Estimator") +
   scale_fill_manual(values = cols) +
   scale_alpha_discrete(range = c(0.5, 1)) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
-  ylim(c(0, 80)) +
-  guides(fill = FALSE, alpha = guide_legend(override.aes = list(fill = "blue"))) +
-  theme_bw() +
-  theme(legend.position = c(0.75, 0.8))
-  
+  ylim(c(0, 350)) +
+  guides(fill = FALSE, alpha = FALSE) 
+
 ## get rmspe
 rmse <- performance_by_type %>% 
   ggplot(aes(x = q_obs, y = rmse, group = factor(paste(grouping, "_", estimator, sep = "")), 
@@ -286,17 +496,13 @@ rmse <- performance_by_type %>%
   scale_fill_manual(values = cols) +
   scale_alpha_discrete(range = c(0.5, 1)) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
-  ylim(c(0, 80)) +
-  guides(fill = FALSE, alpha = FALSE) +
-  theme_bw() 
+  ylim(c(0, 350)) +
+  guides(fill = FALSE, alpha = FALSE) 
 
 
 ## actually plot them
-png(paste0(plots_dir, "vary_q.png"), width = fig_width, height = fig_height, units = "px", res = 300)
-gridExtra::grid.arrange(pred_cover, cred_cover,
-                        rmspe, rmse,
-                        nrow = 2, ncol = 2)
-dev.off()
+ggsave(paste0(plots_dir, "vary_q_n_", args$N, ".png"), plot = plot_grid(cred_cover, pred_cover, rmse, rmspe),
+       device = "png", width = 30, height = 25, units = "cm", dpi = 300)
 
 ## get widths, for supplement
 width <- performance_by_type %>% 
@@ -310,12 +516,102 @@ width <- performance_by_type %>%
   labs(fill = "q") +
   scale_fill_manual(values = cols) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
-  ylim(c(0, 80)) +
-  theme_bw() 
+  ylim(c(0, 400)) 
 
-png(paste0(plots_dir, "vary_q_width.png"), width = fig_width, height = fig_height, units = "px", res = 300)
+png(paste0(plots_dir, "vary_q_width_n_", args$N, ".png"), width = fig_width, height = fig_height, units = "px", res = 300)
 width
 dev.off()
+
+## -------------------------------------------------------------------------------------------------
+## debug: colMeans, colVars of W
+## -------------------------------------------------------------------------------------------------
+cred_cover_mn <- performance_by_type_mn %>%
+  ggplot(aes(x = q_obs, y = cover, group = factor(paste(grouping, "_", estimator, sep = "")), 
+             fill = factor(q), alpha = factor(estimator, levels = c("naive", "no_ve"), ordered = FALSE, labels = c("Naive", "Proposed, no ve")))) +
+  xlab(expression(q^obs)) +
+  ylab(expression(Coverage)) + 
+  labs(fill = "q") +
+  labs(alpha = "Estimator") +
+  ggtitle("Credible interval coverage: filter by mean(W) > 0.5") +
+  geom_boxplot(size = 0.5, position = position_dodge(0.75), outlier.shape = NA) +
+  scale_fill_manual(values = cols) +
+  scale_alpha_discrete(range = c(0.5, 1)) +
+  geom_hline(yintercept = 0.95, linetype = "dashed", color = "red") +
+  ylim(c(0.7, 1)) +
+  guides(alpha = guide_legend(override.aes = list(fill = "blue"))) +
+  theme(legend.position = c(0.6, 0.3),
+        legend.text = element_text(size = 10),
+        legend.title = element_text(size = 12),
+        legend.spacing = unit(.1, "cm"))
+cred_cover_var <- performance_by_type_var %>%
+  ggplot(aes(x = q_obs, y = cover, group = factor(paste(grouping, "_", estimator, sep = "")), 
+             fill = factor(q), alpha = factor(estimator, levels = c("naive", "no_ve"), ordered = FALSE, labels = c("Naive", "Proposed, no ve")))) +
+  xlab(expression(q^obs)) +
+  ylab(expression(Coverage)) + 
+  labs(fill = "q") +
+  labs(alpha = "Estimator") +
+  ggtitle(expression(bold(paste("Credible interval coverage: filter by var(", mu, ") > 1")))) +
+  geom_boxplot(size = 0.5, position = position_dodge(0.75), outlier.shape = NA) +
+  scale_fill_manual(values = cols) +
+  scale_alpha_discrete(range = c(0.5, 1)) +
+  geom_hline(yintercept = 0.95, linetype = "dashed", color = "red") +
+  ylim(c(0.7, 1)) +
+  guides(alpha = guide_legend(override.aes = list(fill = "blue"))) +
+  theme(legend.position = c(0.6, 0.3),
+        legend.text = element_text(size = 10),
+        legend.title = element_text(size = 12),
+        legend.spacing = unit(.1, "cm"))
+ggsave(paste0(plots_dir, "vary_q_n_", args$N, "_mn_var.png"), plot = plot_grid(cred_cover_mn, cred_cover_var),
+       device = "png", width = 30, height = 25, units = "cm", dpi = 300)
+
+## also, coverage of wald-type intervals for all three
+cred_wald_cover <- performance_by_type %>%
+  ggplot(aes(x = q_obs, y = wald_cover, group = grouping, 
+             fill = factor(q))) +
+  xlab(expression(q^obs)) +
+  ylab(expression(Coverage)) + 
+  labs(fill = "q") +
+  ggtitle("Wald-type 'credible' interval coverage") +
+  geom_boxplot(size = 0.5, position = position_dodge(0.75), outlier.shape = NA) +
+  scale_fill_manual(values = cols) +
+  geom_hline(yintercept = 0.95, linetype = "dashed", color = "red") +
+  ylim(c(0.7, 1)) +
+  theme(legend.position = c(0.6, 0.3),
+        legend.text = element_text(size = 10),
+        legend.title = element_text(size = 12),
+        legend.spacing = unit(.1, "cm"))
+cred_wald_cover_mn <- performance_by_type_mn %>%
+  ggplot(aes(x = q_obs, y = wald_cover, group = grouping, 
+             fill = factor(q))) +
+  xlab(expression(q^obs)) +
+  ylab(expression(Coverage)) + 
+  labs(fill = "q") +
+  ggtitle("Wald-type 'credible' interval coverage: filter by mean(W) > 0.5") +
+  geom_boxplot(size = 0.5, position = position_dodge(0.75), outlier.shape = NA) +
+  scale_fill_manual(values = cols) +
+  geom_hline(yintercept = 0.95, linetype = "dashed", color = "red") +
+  ylim(c(0.7, 1)) +
+  theme(legend.position = c(0.6, 0.3),
+        legend.text = element_text(size = 10),
+        legend.title = element_text(size = 12),
+        legend.spacing = unit(.1, "cm"))
+cred_wald_cover_var <- performance_by_type_var %>%
+  ggplot(aes(x = q_obs, y = wald_cover, group = grouping, 
+             fill = factor(q))) +
+  xlab(expression(q^obs)) +
+  ylab(expression(Coverage)) + 
+  labs(fill = "q") +
+  ggtitle(expression(bold(paste("Wald-type 'credible interval' coverage: filter by var(", mu, ") > 1")))) +
+  geom_boxplot(size = 0.5, position = position_dodge(0.75), outlier.shape = NA) +
+  scale_fill_manual(values = cols) +
+  geom_hline(yintercept = 0.95, linetype = "dashed", color = "red") +
+  ylim(c(0.7, 1)) +
+  theme(legend.position = c(0.6, 0.3),
+        legend.text = element_text(size = 10),
+        legend.title = element_text(size = 12),
+        legend.spacing = unit(.1, "cm"))
+ggsave(paste0(plots_dir, "vary_q_n_", args$N, "_wald_cover.png"), plot = plot_grid(cred_wald_cover, cred_wald_cover_mn, cred_wald_cover_var),
+       device = "png", width = 30, height = 25, units = "cm", dpi = 300)
 
 ## -------------------------------------------------------------------------------------------------
 ## look into contributions to mse
@@ -333,12 +629,11 @@ sq_bias <- performance_by_type %>%
   scale_fill_manual(values = cols) +
   scale_alpha_discrete(range = c(0.5, 1)) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
-  ylim(c(0, 5)) +
-  guides(alpha = guide_legend(override.aes = list(fill = "blue"))) +
-  theme_bw()
+  ylim(c(0, 20)) +
+  guides(alpha = guide_legend(override.aes = list(fill = "blue"))) 
 
 
-png(paste0(plots_dir, "vary_q_bias_2.png"), width = fig_width, height = fig_height, units = "px", res = 300)
+png(paste0(plots_dir, "vary_q_bias_2_n_", args$N, ".png"), width = fig_width, height = fig_height, units = "px", res = 300)
 sq_bias
 dev.off()
 
@@ -357,8 +652,20 @@ cover_vs_rank_order <- performance_by_type_over_n %>%
   # scale_fill_manual(values = cols) +
   labs(y = "Coverage") +
   labs(x = "Rank order of W") +
-  ggtitle("Coverage of credible intervals vs. rank order of W") +
-  theme_bw()
+  ggtitle("Coverage of credible intervals vs. rank order of W")
+
+test <- performance_by_type_over_n %>% 
+  filter(q_obs == 7, q == 60, estimator == "no_ve", taxon_id >= 36 & taxon_id <= 43)
+
+test %>% 
+  group_by(q, q_obs, taxon_id) %>% 
+  summarize(cover = mean(cover))
+
+test_perf <- performance_df %>% 
+  filter(taxon_id <= 43 & taxon_id >= 36)
+
+test_perf %>% 
+  filter(!cover)
 
 pred_cover_vs_rank_order <- performance_by_type_over_n %>% 
   filter(q_obs == 7, q == 60, estimator == "no_ve") %>%
@@ -369,8 +676,7 @@ pred_cover_vs_rank_order <- performance_by_type_over_n %>%
   # scale_fill_manual(values = cols) +
   labs(y = "Coverage") +
   labs(x = "Rank order of W") +
-  ggtitle("Coverage of prediction intervals vs. rank order of W") +
-  theme_bw()
+  ggtitle("Coverage of prediction intervals vs. rank order of W") 
 
 width_vs_rank_order <- performance_by_type_over_n %>% 
   filter(q_obs == 7, q == 60, estimator == "no_ve") %>%
@@ -380,200 +686,334 @@ width_vs_rank_order <- performance_by_type_over_n %>%
   # scale_fill_manual(values = cols) +
   labs(y = "Width") +
   labs(x = "Rank order of W") +
-  ggtitle("Prediction interval width vs. rank order of W") +
-  theme_bw()
+  ggtitle("Prediction interval width vs. rank order of W") 
 
-pred_cover_vs_rank_order_40 <- performance_by_type_over_n %>% 
-  filter(q_obs == 7, q == 40, estimator == "no_ve") %>%
-  ggplot(aes(x = taxon_id, y = pred_cover, group = taxon_id, fill = factor(taxon_id))) +
-  geom_boxplot(width = 1, position = position_dodge(width = 0.7, preserve = "total"), outlier.shape = NA) +
-  geom_hline(yintercept = 0.95, linetype = "dashed", color = "red") +
-  labs(fill = "Taxon") +
-  # scale_fill_manual(values = cols) +
-  labs(y = "Coverage") +
-  labs(x = "Rank order of W") +
-  ggtitle("Coverage of prediction intervals vs. rank order of W") +
-  theme_bw()
-
-width_vs_rank_order_40 <- performance_by_type_over_n %>% 
-  filter(q_obs == 7, q == 40, estimator == "no_ve") %>%
-  ggplot(aes(x = taxon_id, y = width, group = taxon_id, fill = factor(taxon_id))) +
-  geom_boxplot(width = 1, position = position_dodge(width = 0.7, preserve = "total"), outlier.shape = NA) +
-  labs(fill = "Taxon") +
-  # scale_fill_manual(values = cols) +
-  labs(y = "Width") +
-  labs(x = "Rank order of W") +
-  ggtitle("Prediction interval width vs. rank order of W") +
-  theme_bw()
-
-pred_cover_vs_rank_order_20 <- performance_by_type_over_n %>% 
-  filter(q_obs == 7, q == 20, estimator == "no_ve") %>%
-  ggplot(aes(x = taxon_id, y = pred_cover, group = taxon_id, fill = factor(taxon_id))) +
-  geom_boxplot(width = 1, position = position_dodge(width = 0.7, preserve = "total"), outlier.shape = NA) +
-  geom_hline(yintercept = 0.95, linetype = "dashed", color = "red") +
-  labs(fill = "Taxon") +
-  # scale_fill_manual(values = cols) +
-  labs(y = "Coverage") +
-  labs(x = "Rank order of W") +
-  ggtitle("Coverage of prediction intervals vs. rank order of W") +
-  theme_bw()
-
-width_vs_rank_order_20 <- performance_by_type_over_n %>% 
-  filter(q_obs == 7, q == 20, estimator == "no_ve") %>%
-  ggplot(aes(x = taxon_id, y = width, group = taxon_id, fill = factor(taxon_id))) +
-  geom_boxplot(width = 1, position = position_dodge(width = 0.7, preserve = "total"), outlier.shape = NA) +
-  labs(fill = "Taxon") +
-  # scale_fill_manual(values = cols) +
-  labs(y = "Width") +
-  labs(x = "Rank order of W") +
-  ggtitle("Prediction interval width vs. rank order of W") +
-  theme_bw()
-
-pred_cover_vs_rank_order_10 <- performance_by_type_over_n %>% 
-  filter(q_obs == 7, q == 10, estimator == "no_ve") %>%
-  ggplot(aes(x = taxon_id, y = pred_cover, group = taxon_id, fill = factor(taxon_id))) +
-  geom_boxplot(width = 1, position = position_dodge(width = 0.7, preserve = "total"), outlier.shape = NA) +
-  geom_hline(yintercept = 0.95, linetype = "dashed", color = "red") +
-  labs(fill = "Taxon") +
-  # scale_fill_manual(values = cols) +
-  labs(y = "Coverage") +
-  labs(x = "Rank order of W") +
-  ggtitle("Coverage of prediction intervals vs. rank order of W") +
-  theme_bw()
-
-width_vs_rank_order_10 <- performance_by_type_over_n %>% 
-  filter(q_obs == 7, q == 10, estimator == "no_ve") %>%
-  ggplot(aes(x = taxon_id, y = width, group = taxon_id, fill = factor(taxon_id))) +
-  geom_boxplot(width = 1, position = position_dodge(width = 0.7, preserve = "total"), outlier.shape = NA) +
-  labs(fill = "Taxon") +
-  # scale_fill_manual(values = cols) +
-  labs(y = "Width") +
-  labs(x = "Rank order of W") +
-  ggtitle("Prediction interval width vs. rank order of W") +
-  theme_bw()
-
+if (!debug) {
+  cover_vs_rank_order_40 <- performance_by_type_over_n %>% 
+    filter(q_obs == 7, q == 40, estimator == "no_ve") %>%
+    ggplot(aes(x = taxon_id, y = cover, group = taxon_id, fill = factor(taxon_id))) +
+    geom_boxplot(width = 1, position = position_dodge(width = 0.7, preserve = "total"), outlier.shape = NA) +
+    geom_hline(yintercept = 0.95, linetype = "dashed", color = "red") +
+    labs(fill = "Taxon") +
+    # scale_fill_manual(values = cols) +
+    labs(y = "Coverage") +
+    labs(x = "Rank order of W") +
+    ggtitle("Coverage of credible intervals vs. rank order of W") 
   
-png(paste0(plots_dir, "vary_q_cover_vs_rank_order.png"), width = fig_width, height = fig_height, units = "px", res = 300)
+  pred_cover_vs_rank_order_40 <- performance_by_type_over_n %>% 
+    filter(q_obs == 7, q == 40, estimator == "no_ve") %>%
+    ggplot(aes(x = taxon_id, y = pred_cover, group = taxon_id, fill = factor(taxon_id))) +
+    geom_boxplot(width = 1, position = position_dodge(width = 0.7, preserve = "total"), outlier.shape = NA) +
+    geom_hline(yintercept = 0.95, linetype = "dashed", color = "red") +
+    labs(fill = "Taxon") +
+    # scale_fill_manual(values = cols) +
+    labs(y = "Coverage") +
+    labs(x = "Rank order of W") +
+    ggtitle("Coverage of prediction intervals vs. rank order of W") 
+  
+  width_vs_rank_order_40 <- performance_by_type_over_n %>% 
+    filter(q_obs == 7, q == 40, estimator == "no_ve") %>%
+    ggplot(aes(x = taxon_id, y = width, group = taxon_id, fill = factor(taxon_id))) +
+    geom_boxplot(width = 1, position = position_dodge(width = 0.7, preserve = "total"), outlier.shape = NA) +
+    labs(fill = "Taxon") +
+    # scale_fill_manual(values = cols) +
+    labs(y = "Width") +
+    labs(x = "Rank order of W") +
+    ggtitle("Prediction interval width vs. rank order of W") 
+  
+  cover_vs_rank_order_20 <- performance_by_type_over_n %>% 
+    filter(q_obs == 7, q == 20, estimator == "no_ve") %>%
+    ggplot(aes(x = taxon_id, y = cover, group = taxon_id, fill = factor(taxon_id))) +
+    geom_boxplot(width = 1, position = position_dodge(width = 0.7, preserve = "total"), outlier.shape = NA) +
+    geom_hline(yintercept = 0.95, linetype = "dashed", color = "red") +
+    labs(fill = "Taxon") +
+    # scale_fill_manual(values = cols) +
+    labs(y = "Coverage") +
+    labs(x = "Rank order of W") +
+    ggtitle("Coverage of credible intervals vs. rank order of W") 
+  
+  pred_cover_vs_rank_order_20 <- performance_by_type_over_n %>% 
+    filter(q_obs == 7, q == 20, estimator == "no_ve") %>%
+    ggplot(aes(x = taxon_id, y = pred_cover, group = taxon_id, fill = factor(taxon_id))) +
+    geom_boxplot(width = 1, position = position_dodge(width = 0.7, preserve = "total"), outlier.shape = NA) +
+    geom_hline(yintercept = 0.95, linetype = "dashed", color = "red") +
+    labs(fill = "Taxon") +
+    # scale_fill_manual(values = cols) +
+    labs(y = "Coverage") +
+    labs(x = "Rank order of W") +
+    ggtitle("Coverage of prediction intervals vs. rank order of W") 
+  
+  width_vs_rank_order_20 <- performance_by_type_over_n %>% 
+    filter(q_obs == 7, q == 20, estimator == "no_ve") %>%
+    ggplot(aes(x = taxon_id, y = width, group = taxon_id, fill = factor(taxon_id))) +
+    geom_boxplot(width = 1, position = position_dodge(width = 0.7, preserve = "total"), outlier.shape = NA) +
+    labs(fill = "Taxon") +
+    # scale_fill_manual(values = cols) +
+    labs(y = "Width") +
+    labs(x = "Rank order of W") +
+    ggtitle("Prediction interval width vs. rank order of W") 
+  
+  cover_vs_rank_order_10 <- performance_by_type_over_n %>% 
+    filter(q_obs == 7, q == 10, estimator == "no_ve") %>%
+    ggplot(aes(x = taxon_id, y = cover, group = taxon_id, fill = factor(taxon_id))) +
+    geom_boxplot(width = 1, position = position_dodge(width = 0.7, preserve = "total"), outlier.shape = NA) +
+    geom_hline(yintercept = 0.95, linetype = "dashed", color = "red") +
+    labs(fill = "Taxon") +
+    # scale_fill_manual(values = cols) +
+    labs(y = "Coverage") +
+    labs(x = "Rank order of W") +
+    ggtitle("Coverage of credible intervals vs. rank order of W")
+  
+  pred_cover_vs_rank_order_10 <- performance_by_type_over_n %>% 
+    filter(q_obs == 7, q == 10, estimator == "no_ve") %>%
+    ggplot(aes(x = taxon_id, y = pred_cover, group = taxon_id, fill = factor(taxon_id))) +
+    geom_boxplot(width = 1, position = position_dodge(width = 0.7, preserve = "total"), outlier.shape = NA) +
+    geom_hline(yintercept = 0.95, linetype = "dashed", color = "red") +
+    labs(fill = "Taxon") +
+    # scale_fill_manual(values = cols) +
+    labs(y = "Coverage") +
+    labs(x = "Rank order of W") +
+    ggtitle("Coverage of prediction intervals vs. rank order of W")
+  
+  width_vs_rank_order_10 <- performance_by_type_over_n %>% 
+    filter(q_obs == 7, q == 10, estimator == "no_ve") %>%
+    ggplot(aes(x = taxon_id, y = width, group = taxon_id, fill = factor(taxon_id))) +
+    geom_boxplot(width = 1, position = position_dodge(width = 0.7, preserve = "total"), outlier.shape = NA) +
+    labs(fill = "Taxon") +
+    # scale_fill_manual(values = cols) +
+    labs(y = "Width") +
+    labs(x = "Rank order of W") +
+    ggtitle("Prediction interval width vs. rank order of W") 
+  
+  
+  png(paste0(plots_dir, "vary_q_cover_vs_rank_order_40_n_", args$N, ".png"), width = fig_width, height = fig_height, units = "px", res = 300)
+  cover_vs_rank_order_40
+  dev.off()
+  png(paste0(plots_dir, "vary_q_pred_cover_vs_rank_order_40_n_", args$N, ".png"), width = fig_width, height = fig_height, units = "px", res = 300)
+  gridExtra::grid.arrange(pred_cover_vs_rank_order_40, 
+                          width_vs_rank_order_40)
+  dev.off()
+  png(paste0(plots_dir, "vary_q_cover_vs_rank_order_20_n_", args$N, ".png"), width = fig_width, height = fig_height, units = "px", res = 300)
+  cover_vs_rank_order_20
+  dev.off()
+  png(paste0(plots_dir, "vary_q_pred_cover_vs_rank_order_20_n_", args$N, ".png"), width = fig_width, height = fig_height, units = "px", res = 300)
+  gridExtra::grid.arrange(pred_cover_vs_rank_order_20, 
+                          width_vs_rank_order_20)
+  dev.off()
+  png(paste0(plots_dir, "vary_q_cover_vs_rank_order_10_n_", args$N, ".png"), width = fig_width, height = fig_height, units = "px", res = 300)
+  cover_vs_rank_order_10
+  dev.off()
+  png(paste0(plots_dir, "vary_q_pred_cover_vs_rank_order_10_n_", args$N, ".png"), width = fig_width, height = fig_height, units = "px", res = 300)
+  gridExtra::grid.arrange(pred_cover_vs_rank_order_10, 
+                          width_vs_rank_order_10)
+  dev.off()
+  
+}
+png(paste0(plots_dir, "vary_q_cover_vs_rank_order_60_n_", args$N, ".png"), width = fig_width, height = fig_height, units = "px", res = 300)
 cover_vs_rank_order
 dev.off()
-
-png(paste0(plots_dir, "vary_q_pred_cover_vs_rank_order_60.png"), width = fig_width, height = fig_height, units = "px", res = 300)
+png(paste0(plots_dir, "vary_q_pred_cover_vs_rank_order_60_n_", args$N, ".png"), width = fig_width, height = fig_height, units = "px", res = 300)
 gridExtra::grid.arrange(pred_cover_vs_rank_order, 
                         width_vs_rank_order)
 dev.off()
-png(paste0(plots_dir, "vary_q_pred_cover_vs_rank_order_40.png"), width = fig_width, height = fig_height, units = "px", res = 300)
-gridExtra::grid.arrange(pred_cover_vs_rank_order_40, 
-                        width_vs_rank_order_40)
-dev.off()
-png(paste0(plots_dir, "vary_q_pred_cover_vs_rank_order_20.png"), width = fig_width, height = fig_height, units = "px", res = 300)
-gridExtra::grid.arrange(pred_cover_vs_rank_order_20, 
-                        width_vs_rank_order_20)
-dev.off()
-png(paste0(plots_dir, "vary_q_pred_cover_vs_rank_order_10.png"), width = fig_width, height = fig_height, units = "px", res = 300)
-gridExtra::grid.arrange(pred_cover_vs_rank_order_10, 
-                        width_vs_rank_order_10)
-dev.off()
-## ------------------------------------------------------------------------------------------------------
-## get it without using most abundant, for supplement
-## ------------------------------------------------------------------------------------------------------
-output_performances_avg_over_taxa_n_ab_0 <- readRDS(paste0("results/", args$sim_name, "/ve_", args$sigma, "/cov_", args$corr, "/n_", args$N, "/output_performances_avg_over_taxa_n_ab_", 0, ".rds"))
 
-## transform into a giant matrix for the average over n and taxa
-performance_avg_over_taxa_n_ab_0 <- do.call(rbind.data.frame, output_performances_avg_over_taxa_n_ab_0)
-performance_avg_over_taxa_n_ab_0$grouping <- paste(performance_avg_over_taxa_n_ab_0$q, performance_avg_over_taxa_n_ab_0$q_obs, sep = "_")
 
-performance_by_type_ab_0 <- performance_avg_over_taxa_n_ab_0 %>% 
-  mutate(no_ve_mse = mse, no_ve_mspe = mspe, no_ve_cover = cover, no_ve_pred_cover = pred_cover,
-         no_ve_width = width) %>% 
-  select(-mse, -mspe, -cover, -pred_cover, -width) %>% 
-  gather(key, value, -q, -q_obs, -mc_id, -grouping) %>% 
-  tidyr::extract(key, c("estimator", "measure"), regex = "(n*.*ve)._?([qmwcbp].*)") %>% 
-  spread(measure, value) %>% 
-  mutate(rmse = sqrt(mse), rmspe = sqrt(mspe))
-
-pred_cover_ab_0 <- performance_by_type_ab_0 %>%
-  ggplot(aes(x = q_obs, y = pred_cover, group = grouping, fill = factor(q))) +
+## -------------------------------------------------------------------------------------------------
+## debugging: 
+## -------------------------------------------------------------------------------------------------
+## look at bias vs rank order
+performance_by_type_over_n %>% 
+  filter(estimator == "no_ve", q == 40) %>% 
+  mutate(sq_bias = bias ^ 2) %>% 
+  ggplot(aes(x = taxon_id, y = sq_bias, group = taxon_id, fill = factor(taxon_id))) +
   xlab(expression(q^obs)) +
-  ylab(expression(Coverage)) + 
-  labs(fill = "q") +
-  ggtitle("Prediction interval coverage") +
-  geom_boxplot(size = 0.5, position = position_dodge(0.5), outlier.shape = NA) +
-  scale_fill_manual(values = cols) +
-  geom_hline(yintercept = 0.95, linetype = "dashed", color = "red") +
-  ylim(c(0.7, 1)) +
-  # guides(fill = FALSE) +
-  theme_bw() +
-  theme(legend.position = c(0.9, 0.3))
-## next, get credible interval coverage
-cred_cover_ab_0 <- performance_by_type_ab_0 %>%
-  ggplot(aes(x = q_obs, y = cover, group = grouping, fill = factor(q))) +
-  xlab(expression(q^obs)) +
-  ylab(expression(Coverage)) + 
-  labs(fill = "q") +
-  ggtitle("Credible interval coverage") +
-  geom_boxplot(size = 0.5, position = position_dodge(0.5), outlier.shape = NA) +
-  scale_fill_manual(values = cols) +
-  geom_hline(yintercept = 0.95, linetype = "dashed", color = "red") +
-  ylim(c(0.7, 1)) +
-  guides(fill = FALSE) +
-  theme_bw()
-
-## get rmspe
-rmspe_ab_0 <- performance_by_type_ab_0 %>% 
-  ggplot(aes(x = q_obs, y = rmspe, group = factor(paste(grouping, "_", estimator, sep = "")), 
-             fill = factor(q), alpha = factor(estimator, levels = c("naive", "no_ve"), ordered = FALSE, labels = c("Naive", "Proposed, no ve")))) +
-  xlab(expression(q^obs)) +
-  ylab(expression(RMSPE)) + 
-  ggtitle("Root mean squared prediction error") +
+  ylab(expression("Squared bias")) + 
+  ggtitle("Squared estimation bias vs rank order") +
   geom_boxplot(width = 1, position = position_dodge(width = 0.7, preserve = "total"), outlier.shape = NA) +
-  labs(alpha = "Estimator") +
-  scale_fill_manual(values = cols) +
-  scale_alpha_discrete(range = c(0.5, 1)) +
+  labs(fill = "Taxon") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
-  # ylim(c(0, 80)) +
-  guides(fill = FALSE, alpha = guide_legend(override.aes = list(fill = "blue"))) +
-  theme_bw() +
-  theme(legend.position = c(0.75, 0.8))
+  ylim(c(0, 20)) +
+  guides(alpha = guide_legend(override.aes = list(fill = "blue"))) 
 
-## get rmspe
-rmse_ab_0 <- performance_by_type_ab_0 %>% 
-  ggplot(aes(x = q_obs, y = rmse, group = factor(paste(grouping, "_", estimator, sep = "")), 
-             fill = factor(q), alpha = factor(estimator, levels = c("naive", "no_ve"), ordered = FALSE, labels = c("Naive", "Proposed, no ve")))) +
-  xlab(expression(q^obs)) +
-  ylab(expression(RMSE)) + 
-  ggtitle("Root mean squared error") +
+## look at number of MC reps for each taxon
+num_reps <- performance_by_type_over_n %>% 
+  group_by(taxon_id, q, q_obs) %>%
+  summarize(num_reps = length(unique(mc_id)))
+
+num_reps_mn <- performance_by_type_over_n_mn %>% 
+  group_by(taxon_id, q, q_obs) %>%
+  summarize(num_reps = length(unique(mc_id)))
+
+num_reps_var <- performance_by_type_over_n_var %>% 
+  group_by(taxon_id, q, q_obs) %>%
+  summarize(num_reps = length(unique(mc_id)))
+
+## check for each taxon id
+num_reps %>% filter(taxon_id == 46) %>% print(n = Inf)
+num_reps_mn %>% filter(taxon_id == 34) %>% print(n = Inf)
+num_reps_var %>% filter(taxon_id == 34) %>% print(n = Inf)
+
+## wald coverage vs rank order
+wald_cover_vs_rank_order <- performance_by_type_over_n %>% 
+  filter(q_obs == 7, q == 60, estimator == "no_ve") %>%
+  ggplot(aes(x = taxon_id, y = wald_cover, group = taxon_id, fill = factor(taxon_id))) +
   geom_boxplot(width = 1, position = position_dodge(width = 0.7, preserve = "total"), outlier.shape = NA) +
-  labs(alpha = "Estimator") +
-  scale_fill_manual(values = cols) +
-  scale_alpha_discrete(range = c(0.5, 1)) +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
-  # ylim(c(0, 80)) +
-  guides(fill = FALSE, alpha = FALSE) +
-  theme_bw() 
+  geom_hline(yintercept = 0.95, linetype = "dashed", color = "red") +
+  labs(fill = "Taxon") +
+  # scale_fill_manual(values = cols) +
+  labs(y = "Wald-type 'credible' coverage") +
+  labs(x = "Rank order of W") +
+  ggtitle("Coverage of credible intervals vs. rank order of W")
+wald_cover_vs_rank_order
+ggsave(paste0(plots_dir, "vary_q_wald_cover_vs_rank_order_n_", args$N, ".png"), wald_cover_vs_rank_order,
+       device = "png", width = 30, height = 25, units = "cm", dpi = 300)
 
+## ---------------------------------------------------------------------------------
+## convergence diagnostics
+## ---------------------------------------------------------------------------------
+rhats <- list(length(args$q))
+for (j in 1:length(args$q)) {
+  results_dir <- paste0("results/", args$sim_name, "/ve_", args$sigma, "/cov_", args$corr, "/n_", args$N, "/q_", args$q[i], "/q_obs_", args$q_obs, "/")
+  
+  dir_mat <- expand.grid(job = 1:args$num_jobs, dir = results_dir)
+  mod_nms_lst <- as.list(paste0(dir_mat$dir, args$stan_model, "_mod_jobid_", dir_mat$job, "_ad_", args$ad, "0000_mt_", args$mt, "_ab_", args$most_abundant, ".rds"))
+  data_nms_lst <- as.list(paste0(dir_mat$dir, args$stan_model, "_data_jobid_", dir_mat$job, "_ad_", args$ad, "0000_mt_", args$mt, "_ab_", args$most_abundant, ".rds"))
+  samp_nms_lst <- as.list(paste0(dir_mat$dir, args$stan_model, "_samps_jobid_", dir_mat$job, "_ad_", args$ad, "0000_mt_", args$mt, "_ab_", args$most_abundant, ".rds"))
+  
+  mod_lst <- lapply(mod_nms_lst, read_func)
+  data_lst <- lapply(data_nms_lst, read_func)
+  beta_summ_lst <- lapply(mod_lst, function(x) summary(x[grepl("beta", rownames(x)), 7]))
+  beta_mat <- do.call(rbind.data.frame, beta_summ_lst)
+  colnames(beta_mat) <- c("Min.", "1st Qu.", "Median", "Mean", "3rd Qu.", "Max.")
+  beta_mat$q_obs <- rep(2:7, each = 50)
+  Sigma_summ_lst <- lapply(mod_lst, function(x) summary(x[grepl("Sigma", rownames(x)), 7]))
+  Sigma_mat <- do.call(rbind.data.frame, Sigma_summ_lst)
+  colnames(Sigma_mat) <- c("Min.", "1st Qu.", "Median", "Mean", "3rd Qu.", "Max.")
+  Sigma_mat$q_obs <- rep(2:7, each = 50)
+  mu_summ_lst <- lapply(mod_lst, function(x) summary(x[grepl("mu", rownames(x)), 7])[1:6])
+  mu_mat <- do.call(rbind.data.frame, mu_summ_lst)
+  colnames(mu_mat) <- c("Min.", "1st Qu.", "Median", "Mean", "3rd Qu.", "Max.")
+  mu_mat$q_obs <- rep(2:7, each = 50)
+  
+  beta_means <- beta_mat %>% 
+    group_by(q_obs) %>% 
+    summarize(min = mean(Min.), first_q = mean(`1st Qu.`), median = mean(Median), mean = mean(Mean), third_q = mean(`3rd Qu.`), max = mean(Max.))
+  Sigma_means <- Sigma_mat %>% 
+    group_by(q_obs) %>% 
+    summarize(min = mean(Min.), first_q = mean(`1st Qu.`), median = mean(Median), mean = mean(Mean), third_q = mean(`3rd Qu.`), max = mean(Max.))
+  mu_means <- mu_mat %>% 
+    group_by(q_obs) %>% 
+    summarize(min = mean(Min.), first_q = mean(`1st Qu.`), median = mean(Median), mean = mean(Mean), third_q = mean(`3rd Qu.`), max = mean(Max.))
+  
+  rhats[[j]] <- tibble(q = args$q[j], q_obs = rep(args$q_obs, each = 3), parameter = rep(c("beta", "Sigma", "mu"), length(args$q_obs)))
+  rhats[[j]] <- tibble::add_column(rhats[[j]], median = c(beta_means$median, Sigma_means$median, mu_means$median))
+  rhats[[j]] <- tibble::add_column(rhats[[j]], iqr_low = c(beta_means$first_q, Sigma_means$first_q, mu_means$first_q))
+  rhats[[j]] <- tibble::add_column(rhats[[j]], iqr_high = c(beta_means$third_q, Sigma_means$third_q, mu_means$third_q))
+}
+rhats_all <- do.call(rbind.data.frame, rhats)
+write.csv(rhats_all, "plots/vary_q/rhats.csv")
 
-## actually plot them
-png(paste0(plots_dir, "vary_q_ab_0.png"), width = fig_width, height = fig_height, units = "px", res = 300)
-gridExtra::grid.arrange(pred_cover_ab_0, cred_cover_ab_0,
-                        rmspe_ab_0, rmse_ab_0,
-                        nrow = 2, ncol = 2)
-dev.off()
-
-## get widths, for supplement
-width_ab_0 <- performance_by_type_ab_0 %>% 
-  filter(estimator == "no_ve") %>% 
-  ggplot(aes(x = q_obs, y = width, group = grouping, 
-             fill = factor(q))) +
-  xlab(expression(q^obs)) +
-  ylab(expression(Width)) + 
-  ggtitle("Prediction interval width") +
-  geom_boxplot(width = 0.7, position = position_identity(), outlier.shape = NA) +
-  labs(fill = "q") +
-  scale_fill_manual(values = cols) +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
-  # ylim(c(0, 80)) +
-  theme_bw() 
-
-png(paste0(plots_dir, "vary_q_width_ab_0.png"), width = fig_width, height = fig_height, units = "px", res = 300)
-width_ab_0
-dev.off()
+## ------------------------------------------------------------------------------------------------------
+## get it without using most abundant, for supplement (this was only the results with no samples)
+## ------------------------------------------------------------------------------------------------------
+# output_performances_avg_over_taxa_n_ab_0 <- readRDS(paste0("results/", args$sim_name, "/ve_", args$sigma, "/cov_", args$corr, "/n_", args$N, "/output_performances_avg_over_taxa_n_ab_", 0, ".rds"))
+# 
+# ## transform into a giant matrix for the average over n and taxa
+# performance_avg_over_taxa_n_ab_0 <- do.call(rbind.data.frame, output_performances_avg_over_taxa_n_ab_0)
+# performance_avg_over_taxa_n_ab_0$grouping <- paste(performance_avg_over_taxa_n_ab_0$q, performance_avg_over_taxa_n_ab_0$q_obs, sep = "_")
+# 
+# performance_by_type_ab_0 <- performance_avg_over_taxa_n_ab_0 %>% 
+#   mutate(no_ve_mse = mse, no_ve_mspe = mspe, no_ve_cover = cover, no_ve_pred_cover = pred_cover,
+#          no_ve_width = width) %>% 
+#   select(-mse, -mspe, -cover, -pred_cover, -width) %>% 
+#   gather(key, value, -q, -q_obs, -mc_id, -grouping) %>% 
+#   tidyr::extract(key, c("estimator", "measure"), regex = "(n*.*ve)._?([qmwcbp].*)") %>% 
+#   spread(measure, value) %>% 
+#   mutate(rmse = sqrt(mse), rmspe = sqrt(mspe))
+# 
+# pred_cover_ab_0 <- performance_by_type_ab_0 %>%
+#   ggplot(aes(x = q_obs, y = pred_cover, group = grouping, fill = factor(q))) +
+#   xlab(expression(q^obs)) +
+#   ylab(expression(Coverage)) + 
+#   labs(fill = "q") +
+#   ggtitle("Prediction interval coverage") +
+#   geom_boxplot(size = 0.5, position = position_dodge(0.5), outlier.shape = NA) +
+#   scale_fill_manual(values = cols) +
+#   geom_hline(yintercept = 0.95, linetype = "dashed", color = "red") +
+#   ylim(c(0.7, 1)) +
+#   # guides(fill = FALSE) +
+#   theme_bw() +
+#   theme(legend.position = c(0.9, 0.3))
+# ## next, get credible interval coverage
+# cred_cover_ab_0 <- performance_by_type_ab_0 %>%
+#   ggplot(aes(x = q_obs, y = cover, group = grouping, fill = factor(q))) +
+#   xlab(expression(q^obs)) +
+#   ylab(expression(Coverage)) + 
+#   labs(fill = "q") +
+#   ggtitle("Credible interval coverage") +
+#   geom_boxplot(size = 0.5, position = position_dodge(0.5), outlier.shape = NA) +
+#   scale_fill_manual(values = cols) +
+#   geom_hline(yintercept = 0.95, linetype = "dashed", color = "red") +
+#   ylim(c(0.7, 1)) +
+#   guides(fill = FALSE) +
+#   theme_bw()
+# 
+# ## get rmspe
+# rmspe_ab_0 <- performance_by_type_ab_0 %>% 
+#   ggplot(aes(x = q_obs, y = rmspe, group = factor(paste(grouping, "_", estimator, sep = "")), 
+#              fill = factor(q), alpha = factor(estimator, levels = c("naive", "no_ve"), ordered = FALSE, labels = c("Naive", "Proposed, no ve")))) +
+#   xlab(expression(q^obs)) +
+#   ylab(expression(RMSPE)) + 
+#   ggtitle("Root mean squared prediction error") +
+#   geom_boxplot(width = 1, position = position_dodge(width = 0.7, preserve = "total"), outlier.shape = NA) +
+#   labs(alpha = "Estimator") +
+#   scale_fill_manual(values = cols) +
+#   scale_alpha_discrete(range = c(0.5, 1)) +
+#   geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+#   # ylim(c(0, 80)) +
+#   guides(fill = FALSE, alpha = guide_legend(override.aes = list(fill = "blue"))) +
+#   theme_bw() +
+#   theme(legend.position = c(0.75, 0.8))
+# 
+# ## get rmspe
+# rmse_ab_0 <- performance_by_type_ab_0 %>% 
+#   ggplot(aes(x = q_obs, y = rmse, group = factor(paste(grouping, "_", estimator, sep = "")), 
+#              fill = factor(q), alpha = factor(estimator, levels = c("naive", "no_ve"), ordered = FALSE, labels = c("Naive", "Proposed, no ve")))) +
+#   xlab(expression(q^obs)) +
+#   ylab(expression(RMSE)) + 
+#   ggtitle("Root mean squared error") +
+#   geom_boxplot(width = 1, position = position_dodge(width = 0.7, preserve = "total"), outlier.shape = NA) +
+#   labs(alpha = "Estimator") +
+#   scale_fill_manual(values = cols) +
+#   scale_alpha_discrete(range = c(0.5, 1)) +
+#   geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+#   # ylim(c(0, 80)) +
+#   guides(fill = FALSE, alpha = FALSE) +
+#   theme_bw() 
+# 
+# 
+# ## actually plot them
+# png(paste0(plots_dir, "vary_q_ab_0.png"), width = fig_width, height = fig_height, units = "px", res = 300)
+# gridExtra::grid.arrange(pred_cover_ab_0, cred_cover_ab_0,
+#                         rmspe_ab_0, rmse_ab_0,
+#                         nrow = 2, ncol = 2)
+# dev.off()
+# 
+# ## get widths, for supplement
+# width_ab_0 <- performance_by_type_ab_0 %>% 
+#   filter(estimator == "no_ve") %>% 
+#   ggplot(aes(x = q_obs, y = width, group = grouping, 
+#              fill = factor(q))) +
+#   xlab(expression(q^obs)) +
+#   ylab(expression(Width)) + 
+#   ggtitle("Prediction interval width") +
+#   geom_boxplot(width = 0.7, position = position_identity(), outlier.shape = NA) +
+#   labs(fill = "q") +
+#   scale_fill_manual(values = cols) +
+#   geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+#   # ylim(c(0, 80)) +
+#   theme_bw() 
+# 
+# png(paste0(plots_dir, "vary_q_width_ab_0.png"), width = fig_width, height = fig_height, units = "px", res = 300)
+# width_ab_0
+# dev.off()

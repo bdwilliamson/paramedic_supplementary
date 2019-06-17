@@ -1,6 +1,6 @@
 ## Supplementary materials for the `paramedic` paper
 
-This repository contains code to reproduce the analyses in "Estimation of microbial abundances from 16s data and qPCR abundances" by Williamson, Willis, and Hughes. All analyses were implemented in the freely available R programming language.
+This repository contains code to reproduce the analyses in "A multi-omics model for relative and absolute microbial abundances" by Williamson, Willis, and Hughes. All analyses were implemented in the freely available R programming language.
 
 This README file provides an overview of the code available in the repository.  
 
