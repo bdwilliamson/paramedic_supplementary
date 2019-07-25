@@ -1,6 +1,6 @@
 ######################################################################################
 ##
-## FILE: qpcr_analysis.R
+## FILE: qpcr_analysis_centered.R
 ##
 ## CREATED: 15 October 2018 by Brian Williamson
 ##
@@ -8,8 +8,8 @@
 ##          to showcase qPCR estimation method
 ##
 ## INPUTS: ../../data/p2_brngs_qPCR_merge_20180314.csv
-## 
-## OUTPUTS: 
+##
+## OUTPUTS:
 ######################################################################################
 ## -----------------------------------------------------------------------------------
 ## load required functions and libraries
@@ -53,9 +53,6 @@ print(args)
 ## -----------------------------------------------------------------------------------
 full_data <- read.csv(file=paste0(data_dir, "p2_brngs_qPCR_merge_20180314.csv"),
                       stringsAsFactors = FALSE)
-split_ids <- get_ids(full_data$SampleID)
-full_data$ptid <- split_ids$woman_ids
-full_data$obs <- split_ids$obs_ids
 ## set m_min, llod for processing
 m_min <- 1000
 llod <- 0
@@ -100,22 +97,22 @@ if (q < dim(br16_mat)[2]) {
   ## get the order
   ordered_by_abundance <- get_most_abundant_taxa(br16_mat, m)
   ## remove the ones corresponding to observed qPCR
-  taxa_to_estimate_init <- ordered_by_abundance[!(ordered_by_abundance %in% observed_taxa)]  
+  taxa_to_estimate_init <- ordered_by_abundance[!(ordered_by_abundance %in% observed_taxa)]
   ## if leave-one-out, the taxon to estimate is the left-out one
   if (args$leave_one_out < 999) {
     taxa_to_estimate <- args$leave_one_out
   } else {
     taxa_to_estimate <- taxa_to_estimate_init
   }
-  
+
   ## select the most abundant taxa (always select the first 7, corresponding to qPCR)
   ## if q == q_obs, then only do observed taxa
   if (q == q_obs) {
     most_abundant_16S <- br16_mat[, observed_taxa]
   } else {
-    most_abundant_16S <- br16_mat[, c(observed_taxa, taxa_to_estimate[1:(q - q_obs)])]  
+    most_abundant_16S <- br16_mat[, c(observed_taxa, taxa_to_estimate[1:(q - q_obs)])]
   }
-  
+
   ## rename br16_mat
   br16_mat <- most_abundant_16S
   ## re-normalize
@@ -141,7 +138,7 @@ max_treedepth <- args$max_treedepth
 stan_v <- qpcr_mat[, observed_taxa]
 mode(stan_v) <- "integer"
 if (args$estimator != "naive") {
-  stan_data_lst <- list(W = br16_mat[samp, ], V = stan_v[samp, ], N = args$sample_num, q = q, q_obs = q_obs)    
+  stan_data_lst <- list(W = br16_mat[samp, ], V = stan_v[samp, ], N = args$sample_num, q = q, q_obs = q_obs)
 } else {
   stan_data_lst <- list()
 }
@@ -155,11 +152,11 @@ if (args$do_parallel) {
 ## run the naive estimator for initial values
 if (q == q_obs) {
   if (args$leave_one_out < 999) {
-    naive <- cbind(stan_v[samp, ], apply(matrix(1:q)[-observed_taxa], 1, naive_estimator, br16_mat[samp, ], stan_v[samp, ], observed_taxa))  
+    naive <- cbind(stan_v[samp, ], apply(matrix(1:q)[-observed_taxa], 1, naive_estimator, br16_mat[samp, ], stan_v[samp, ], observed_taxa))
   } else {
     naive <- stan_v[samp, ]
   }
-  
+
 } else {
   naive <- cbind(stan_v[samp, ], apply(matrix((q_obs+1):q), 1, naive_estimator, br16_mat[samp, ], stan_v[samp, ], observed_taxa))
 }
@@ -178,19 +175,19 @@ log_mu_tilde <- sweep(sweep(log_naive, 2, naive_beta, FUN = "-"), 2, naive_sigma
 # set up inits list
 if (args$n_chains > 1) {
   if (args$n_chains == 4) {
-    inits_list <- c(list(list(log_mu_tilde = log_mu_tilde),
+    inits_list <- c(list(list(log_mu = log_naive),
                          list(beta = naive_beta),
                          list(Sigma = naive_sigma),
                          list(init = "random")))
   } else {
-    inits_list <- c(list(list(log_mu_tilde = log_mu_tilde),
+    inits_list <- c(list(list(log_mu = log_naive),
                          list(beta = naive_beta),
                          list(Sigma = naive_sigma)),
-                    replicate(args$n_chains - 3, list(init = "random"), simplify = FALSE))  
+                    replicate(args$n_chains - 3, list(init = "random"), simplify = FALSE))
   }
-  
+
 } else {
-  inits_list <- list(list(log_mu_tilde = log_mu_tilde, beta = naive_beta, Sigma = naive_sigma)) 
+  inits_list <- list(list(log_mu_tilde = log_mu_tilde, beta = naive_beta, Sigma = naive_sigma))
 }
 
 cat("\n Running estimator", args$estimator, "fold", args$fold_num, "\n")
@@ -205,7 +202,7 @@ if (args$estimator == "naive") {
   samps <- NA
     mod_summ <- mod
 } else if (args$estimator == "no_ve") {
-    system.time(mod <- stan(file = paste0(stan_dir, "predict_qpcr_noncentered.stan"), 
+    system.time(mod <- stan(file = paste0(stan_dir, "predict_qpcr.stan"),
                               data = stan_data_lst,
                               iter = args$n_iter, warmup = args$n_burnin, chains = args$n_chains, seed = stan_seeds[1],
                               control = list(adapt_delta = adapt_delta, max_treedepth = max_treedepth),
@@ -215,7 +212,7 @@ if (args$estimator == "naive") {
     mod_summ <- summary(mod, probs = c(0.025, 0.975))$summary
     samps <- rstan::extract(mod)
 } else {
-    system.time(mod <- stan(file = paste0(stan_dir, "predict_qpcr_with_varying_efficiency_noncentered.stan"), 
+    system.time(mod <- stan(file = paste0(stan_dir, "predict_qpcr_with_varying_efficiency.stan"),
                               data = stan_data_lst,
                               iter = args$n_iter, warmup = args$n_burnin, chains = args$n_chains, seed = stan_seeds[2],
                               control = list(adapt_delta = adapt_delta, max_treedepth = max_treedepth),
@@ -230,10 +227,10 @@ if (args$estimator == "naive") {
 if (args$save_stan_model) {
     save_lst <- list(data = data_lst, mod = mod_summ, stan_data_lst = stan_data_lst, samps = samps, stan_out = mod)
 } else {
-    save_lst <- list(data = data_lst, mod = mod_summ, stan_data_lst = stan_data_lst, samps = samps, stan_out = NA)    
+    save_lst <- list(data = data_lst, mod = mod_summ, stan_data_lst = stan_data_lst, samps = samps, stan_out = NA)
 }
 
-saveRDS(save_lst, paste0("qpcr_data_analysis_est_", args$estimator, "_q_", args$q, "_q_obs_", q_obs, "_sample_", args$sample_num, "_loo_", args$leave_one_out, ".rds"))
+saveRDS(save_lst, paste0("qpcr_data_analysis_centered_est_", args$estimator, "_q_", args$q, "_q_obs_", q_obs, "_sample_", args$sample_num, "_loo_", args$leave_one_out, ".rds"))
 
 trace_plot_nms <- c("mu", "beta", "Sigma")
 if (args$estimator == "ve") {
@@ -243,7 +240,7 @@ if (args$estimator == "ve") {
 fig_width <- fig_height <- 2590
 cex <- 1.5
 if (args$estimator == "naive") {
-  
+
 } else {
   trace_plots_dir <- "trace_plots"
   if (!dir.exists(trace_plots_dir)) {
@@ -260,16 +257,16 @@ if (args$estimator == "naive") {
       }
       if (sum(logi) > 10) {
         for (j in 1:ceiling(sum(logi)/10)) {
-          CairoPNG(paste0(trace_plots_dir, "/", args$estimator, "_par_", trace_plot_nms[n], "_taxon_", i, "_slice_", j, "_q_", args$q, "_q_obs_", q_obs, "_sample_", as.numeric(args$sample), "_loo_", args$leave_one_out, ".png"), width = fig_width, height = fig_height, res = 300, units = "px")
+          CairoPNG(paste0(trace_plots_dir, "/", args$estimator, "_centered_par_", trace_plot_nms[n], "_taxon_", i, "_slice_", j, "_q_", args$q, "_q_obs_", q_obs, "_sample_", as.numeric(args$sample), "_loo_", args$leave_one_out, ".png"), width = fig_width, height = fig_height, res = 300, units = "px")
           plot(traceplot(mod, pars = names(mod)[logi][1:10 + (j-1)*10]), cex = cex)
           dev.off()
         }
       } else {
-        CairoPNG(paste0(trace_plots_dir, "/", args$estimator, "_par_", trace_plot_nms[n], "_taxon_", i, "_q_", args$q, "_q_obs_", q_obs, "_sample_", as.numeric(args$sample), "_loo_", args$leave_one_out, ".png"), width = fig_width, height = fig_height, res = 300, units = "px")
+        CairoPNG(paste0(trace_plots_dir, "/", args$estimator, "_centered_par_", trace_plot_nms[n], "_taxon_", i, "_q_", args$q, "_q_obs_", q_obs, "_sample_", as.numeric(args$sample), "_loo_", args$leave_one_out, ".png"), width = fig_width, height = fig_height, res = 300, units = "px")
         plot(traceplot(mod, pars = names(mod)[logi]), cex = cex)
-        dev.off()  
+        dev.off()
       }
-      
+
     }
   }
 }
