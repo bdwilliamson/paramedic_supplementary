@@ -1,6 +1,6 @@
 ## Running the numerical experiments for the `paramedic` paper
 
-This file describes how to reproduce the simulations in the "A multi-omics model for relative and absolute microbial abundances" by Williamson, Willis, and Hughes. While the code in this file assumes that the user is submitting batch jobs to a high-performance computing (HPC) cluster using the Slurm batch scheduing system, minor edits to these commands allow the use of either local or alternative HPC cluster environments.
+This file describes how to reproduce the simulations in the "A multi-omics model for relative and absolute microbial abundances" by Williamson, Hughes, and Willis. While the code in this file assumes that the user is submitting batch jobs to a high-performance computing (HPC) cluster using the Slurm batch scheduing system, minor edits to these commands allow the use of either local or alternative HPC cluster environments.
 
 The main workhorse function for these simulations is `qpcr_sim.R`, which allows the user to specify all of the arguments that may vary in a simulated example. The shell script `qpcr_sim.sh` is simply tasked with running `qpcr_sim.R` using `Rscript`, using user-provided command-line arguments. This code may be run locally. The code detailed in the next two sections describes how to run the numerical experiments from the manuscript on a HPC cluster.
 
@@ -36,7 +36,7 @@ This code creates 24 job arrays (one for each unique combination of $q$ and $q^\
 
 This analysis uses `submit_qpcr_sim_vary_sigma_e_all.sh`. All of the necessary command-line arguments are provided in this file; the arguments are:
 
-1. The Stan model file: "../../stan/predict_qpcr_noncentered.stan" or "../../stan/predict_qpcr_with_varying_efficiency_noncentered.stan" 
+1. The Stan model file: "../../stan/predict_qpcr_noncentered.stan" or "../../stan/predict_qpcr_with_varying_efficiency_noncentered.stan"
 2. The sample size: 100
 3. The number of total taxa: 40
 4. The covariance of the taxa: 0
