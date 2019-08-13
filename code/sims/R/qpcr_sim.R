@@ -8,7 +8,7 @@
 ##          for a given Stan model
 ##
 ## INPUTS: listed below
-##         
+##
 ## OUTPUTS: a dataset and the Stan results
 ##################################################################################
 
@@ -23,7 +23,7 @@ library("paramedic")
 source("data_gen_funcs.R")
 source("data_generator.R")
 
-## grab in the job id; 
+## grab in the job id;
 ## if you use a different HPC batch scheduler, edit "SLURM_ARRAY_TASK_ID" to the appropriate environment variable
 ## if you are running locally, you'll need to set the job id locally to one of 1--50 (for each of the 50 replicates)
 job_id <- as.numeric(Sys.getenv("SLURM_ARRAY_TASK_ID"))
@@ -73,7 +73,7 @@ if (args$beta == "random") {
   beta <- rep(3, args$q)
 }
 # hyperparameter controls covariance in off-diagonal of mus
-Sigma[row(Sigma) != col(Sigma)] <- args$corr 
+Sigma[row(Sigma) != col(Sigma)] <- args$corr
 # if parallel, set up cores
 if (args$parallel) {
     options(mc.cores = parallel::detectCores())
@@ -99,9 +99,9 @@ dataset_with_truth <- data_generator(args$N, args$q, args$q_obs, current_seed, b
 dataset <- dataset_with_truth[(names(dataset_with_truth) %in% c("V", "W", "N", "q", "q_obs"))]
 
 ## create output directory
-prefix <- sprintf("%s/ve_%s/cov_%s/n_%s/q_%s/q_obs_%s/", 
-    args$sim_name, 
-    args$sigma, 
+prefix <- sprintf("%s/ve_%s/cov_%s/n_%s/q_%s/q_obs_%s/",
+    args$sim_name,
+    args$sigma,
     args$corr,
     args$N,
     args$q,
@@ -111,7 +111,7 @@ if (!dir.exists(prefix)) {
 }
 
 ## make a different seed for each column of interest
-## job_id is the taxon id * replicate number (i.e., for 7 groups of 2 taxa and 20 reps each, 
+## job_id is the taxon id * replicate number (i.e., for 7 groups of 2 taxa and 20 reps each,
 ## job_id ranges from 1 -- 280)
 stan_seed <- current_seed
 
@@ -124,9 +124,7 @@ params_to_save <- if (grepl("varying_efficiency", args$stan_model)) {
 
 # run the model
 set.seed(stan_seed)
-system.time(mod <- paramedic::paramedic(W = dataset$W, V = dataset$V, N = dataset$N, 
-                                        q = dataset$q, q_obs = dataset$q_obs, 
-                                        stan_model = args$stan_model, n_iter = args$iter,
+system.time(mod <- paramedic::run_paramedic(W = dataset$W, V = dataset$V, n_iter = args$iter,
                                         n_burnin = args$warmup, n_chains = args$n_chains, stan_seed = stan_seed,
                                         params_to_save = params_to_save,
                                         control = list(adapt_delta = adapt_delta, max_treedepth = max_treedepth),
@@ -140,21 +138,21 @@ samps <- extract(mod)
 ## save the output
 saveRDS(mod_summ, file = sprintf("%s/%s_mod_jobid_%d_ad_%f_mt_%d_ab_%s.rds",
     prefix,
-    strsplit(strsplit(args$stan_model, "/")[[1]], ".", fixed = TRUE)[[length(strsplit(strsplit(args$stan_model, "/")[[1]], ".", fixed = TRUE))]][1], 
+    strsplit(strsplit(args$stan_model, "/")[[1]], ".", fixed = TRUE)[[length(strsplit(strsplit(args$stan_model, "/")[[1]], ".", fixed = TRUE))]][1],
     job_id,
     adapt_delta,
     max_treedepth,
     as.character(args$use_most_abundant)))
 saveRDS(dataset_with_truth, file = sprintf("%s/%s_data_jobid_%d_ad_%f_mt_%d_ab_%s.rds",
     prefix,
-    strsplit(strsplit(args$stan_model, "/")[[1]], ".", fixed = TRUE)[[length(strsplit(strsplit(args$stan_model, "/")[[1]], ".", fixed = TRUE))]][1], 
+    strsplit(strsplit(args$stan_model, "/")[[1]], ".", fixed = TRUE)[[length(strsplit(strsplit(args$stan_model, "/")[[1]], ".", fixed = TRUE))]][1],
     job_id,
     adapt_delta,
     max_treedepth,
     as.character(args$use_most_abundant)))
 saveRDS(samps, file = sprintf("%s/%s_samps_jobid_%d_ad_%f_mt_%d_ab_%s.rds",
     prefix,
-    strsplit(strsplit(args$stan_model, "/")[[1]], ".", fixed = TRUE)[[length(strsplit(strsplit(args$stan_model, "/")[[1]], ".", fixed = TRUE))]][1], 
+    strsplit(strsplit(args$stan_model, "/")[[1]], ".", fixed = TRUE)[[length(strsplit(strsplit(args$stan_model, "/")[[1]], ".", fixed = TRUE))]][1],
     job_id,
     adapt_delta,
     max_treedepth,

@@ -28,6 +28,12 @@ sbatch -M beagle -c4 --array=1-50 --requeue ./qpcr_sim.sh vary_sigma_e "../stan/
 sbatch -M beagle -c4 --array=1-50 --requeue ./qpcr_sim.sh vary_sigma_e "../stan/predict_qpcr_noncentered.stan" 100 40 7 0 0.4 4 10500 10000 1 50 1 1 1 1 6 1
 sbatch -M beagle -c4 --array=1-50 --requeue ./qpcr_sim.sh vary_sigma_e "../stan/predict_qpcr_noncentered.stan" 100 40 7 0 0.5 4 10500 10000 1 50 1 1 1 1 6 1
 
+# add on later: sigma_e = 0.6, 0.8, 1
+sbatch -M beagle -c4 --array=1-50 --requeue ./qpcr_sim.sh vary_sigma_e "../stan/predict_qpcr_noncentered.stan" 100 40 7 0 0.6 4 10500 10000 1 50 1 1 1 1 6 1
+sbatch -M beagle -c4 --array=1-50 --requeue ./qpcr_sim.sh vary_sigma_e "../stan/predict_qpcr_noncentered.stan" 100 40 7 0 0.8 4 10500 10000 1 50 1 1 1 1 6 1
+sbatch -M beagle -c4 --array=1-50 --requeue ./qpcr_sim.sh vary_sigma_e "../stan/predict_qpcr_noncentered.stan" 100 40 7 0 1 4 10500 10000 1 50 1 1 1 1 6 1
+
+
 ## varying efficiency
 sbatch -M beagle -c4 --array=1-50 --requeue ./qpcr_sim.sh vary_sigma_e "../stan/predict_qpcr_with_varying_efficiency_noncentered.stan" 100 40 7 0 0 4 10500 10000 1 50 1 1 1 1 6 1
 sbatch -M beagle -c4 --array=1-50 --requeue ./qpcr_sim.sh vary_sigma_e "../stan/predict_qpcr_with_varying_efficiency_noncentered.stan" 100 40 7 0 0.1 4 10500 10000 1 50 1 1 1 1 6 1
@@ -35,3 +41,8 @@ sbatch -M beagle -c4 --array=1-50 --requeue ./qpcr_sim.sh vary_sigma_e "../stan/
 sbatch -M beagle -c4 --array=1-50 --requeue ./qpcr_sim.sh vary_sigma_e "../stan/predict_qpcr_with_varying_efficiency_noncentered.stan" 100 40 7 0 0.3 4 10500 10000 1 50 1 1 1 1 6 1
 sbatch -M beagle -c4 --array=1-50 --requeue ./qpcr_sim.sh vary_sigma_e "../stan/predict_qpcr_with_varying_efficiency_noncentered.stan" 100 40 7 0 0.4 4 10500 10000 1 50 1 1 1 1 6 1
 sbatch -M beagle -c4 --array=1-50 --requeue ./qpcr_sim.sh vary_sigma_e "../stan/predict_qpcr_with_varying_efficiency_noncentered.stan" 100 40 7 0 0.5 4 10500 10000 1 50 1 1 1 1 6 1
+
+# add on later: sigma_e = 0.6, 0.8, 1
+sbatch -M beagle -c4 --array=1-50 --requeue ./qpcr_sim.sh vary_sigma_e "../stan/predict_qpcr_with_varying_efficiency_noncentered.stan" 100 40 7 0 0.6 4 10500 10000 1 50 1 1 1 1 6 1
+sbatch -M beagle -c4 --array=1-50 --requeue ./qpcr_sim.sh vary_sigma_e "../stan/predict_qpcr_with_varying_efficiency_noncentered.stan" 100 40 7 0 0.8 4 10500 10000 1 50 1 1 1 1 6 1
+sbatch -M beagle -c4 --array=1-50 --requeue ./qpcr_sim.sh vary_sigma_e "../stan/predict_qpcr_with_varying_efficiency_noncentered.stan" 100 40 7 0 1 4 10500 10000 1 50 1 1 1 1 6 1
