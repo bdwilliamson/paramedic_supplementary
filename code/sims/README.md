@@ -1,6 +1,6 @@
-## Running the numerical experiments for the `paramedic` paper
+# Running the numerical experiments for the `paramedic` paper
 
-This file describes how to reproduce the simulations in the "A multi-omics model for relative and absolute microbial abundances" by Williamson, Hughes, and Willis. While the code in this file assumes that the user is submitting batch jobs to a high-performance computing (HPC) cluster using the Slurm batch scheduing system, minor edits to these commands allow the use of either local or alternative HPC cluster environments.
+This file describes how to reproduce the simulations in the "A multi-view model for relative and absolute microbial abundances" by Williamson, Hughes, and Willis. While the code in this file assumes that the user is submitting batch jobs to a high-performance computing (HPC) cluster using the Slurm batch scheduing system, minor edits to these commands allow the use of either local or alternative HPC cluster environments.
 
 The main workhorse function for these simulations is `qpcr_sim.R`, which allows the user to specify all of the arguments that may vary in a simulated example. The shell script `qpcr_sim.sh` is simply tasked with running `qpcr_sim.R` using `Rscript`, using user-provided command-line arguments. This code may be run locally. The code detailed in the next two sections describes how to run the numerical experiments from the manuscript on a HPC cluster.
 

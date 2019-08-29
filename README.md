@@ -4,12 +4,6 @@ This repository contains code to reproduce the analyses in "A multi-view model f
 
 This README file provides an overview of the code available in the repository.  
 
------
-
-## Data directory
-
------
-
 ## Code directory
 
 We have separated our code further into two sub-directories based on the two main objectives of the manuscript:
@@ -18,6 +12,10 @@ We have separated our code further into two sub-directories based on the two mai
 2. An analysis of 433 taxa sampled from the vaginal microbiome of 1213 women.
 
 Within each sub-directory, we further subdivide the code into an R directory (hosting all of the R code for the analysis) and a shell directory (hosting all of the code for batch submission to a high-performance cluster computing environment). All analyses were performed on a Linux cluster using the Slurm batch scheduling system. If you use a difference batch scheduling system, the individual code files are flagged with the line where you can change batch variables. If you prefer to run the analyses locally, you may -- however, these analyses will then take a large amount of time.
+
+## Stan directory
+
+This directory contains all Stan code necessary to run the numerical experiments.
 
 -----
 

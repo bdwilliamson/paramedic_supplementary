@@ -12,6 +12,7 @@ nchains=${5}
 loo=${6}
 div_num=${7}
 save_model=${8}
+sample=${9}
 
 
 ml R/3.4.3-foss-2016b-fh1
