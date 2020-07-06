@@ -18,42 +18,47 @@ code_dir <- "code/R/"
 data_dir <- "data/"
 stan_dir <- "stan/"
 library("methods")
+library("StanHeaders")
 library("rstan")
 library("argparse")
 library("Cairo")
+remotes::install_github("statdivlab/paramedic", ref = "v0.0.3")
+library("paramedic")
 source(paste0(code_dir, "analyze_data/qpcr_analysis_helper_functions.R"))
 source(paste0(code_dir, "naive_qpcr_estimator.R"))
 source(paste0(code_dir, "analyze_data/get_most_abundant_taxa.R"))
 
 parser <- ArgumentParser()
 parser$add_argument("--estimator", default = "no_ve", help = "the estimator to calculate")
+parser$add_argument("--use-precompiled", type = "integer", default = 1, help = "use precompiled stan code?")
+parser$add_argument("--adjust", type = "integer", default = 0, help = "adjust for case/control status?")
 parser$add_argument("--do-parallel", type = "integer", default = 1, help = "parallelize?")
 parser$add_argument("--fold-num", type = "double", default = 1, help = "data fold to run on")
 parser$add_argument("--num-folds", type = "double", default = 1, help = "number of data folds")
 parser$add_argument("--n-chains", type = "double", default = 6, help = "number of chains")
 parser$add_argument("--n-iter", type = "double", default = 10500, help = "number of iterations")
 parser$add_argument("--n-burnin", type = "double", default = 10000, help = "number of burn-in")
-parser$add_argument("--q", type = "double", default = 60, help = "number of taxa")
-parser$add_argument("--sample-num", type = "double", default = 100, help = "sample sample-num women or not")
-parser$add_argument("--q-obs", type = "double", default = 7, help = "number of observed qPCR taxa")
+parser$add_argument("--q", type = "double", default = 127, help = "number of taxa")
+parser$add_argument("--sample-num", type = "double", default = 110, help = "sample sample-num women or not")
+parser$add_argument("--q-obs", type = "double", default = 13, help = "number of observed qPCR taxa")
 parser$add_argument("--leave-one-out", type = "double", default = 999, help = "index to leave out (99 means do not do leave-one-out)")
 parser$add_argument("--div-num", type = "double", default = 1000, help = "number to rescale qPCR by")
 parser$add_argument("--save-stan-model", type = "double", default = 0, help = "save stan model (1) or not (0)")
 parser$add_argument("--max-treedepth", type = "double", default = 15, help = "max treedepth")
 parser$add_argument("--adapt-delta", type = "double", default = 0.85, help = "adapt delta")
+parser$add_argument("--alpha-sigma", type = "double", default = 2, help = "alpha_sigma: shape parameter for inverse gamma prior on e variance")
+parser$add_argument("--kappa-sigma", type = "double", default = 1, help = "kappa_sigma: scale parameter for inverse gamma prior on e variance")
 args <- parser$parse_args()
 
 args$do_parallel <- as.logical(args$do_parallel)
 args$save_stan_model <- as.logical(args$save_stan_model)
-
+args$adjust <- as.logical(args$adjust)
+args$use_precompiled <- as.logical(args$use_precompiled)
 print(args)
 
 ## -----------------------------------------------------------------------------------
 ## load in the data, clean it up
 ## -----------------------------------------------------------------------------------
-## install the paramedic package if necessary
-# devtools::install_github("statdivlab/paramedic@v0.0.0.9000")
-library("paramedic")
 data("example_qPCR_data")
 data("example_br16S_data")
 ## calculate the read numbers
@@ -124,12 +129,34 @@ max_treedepth <- args$max_treedepth
 ## set up the data list for stan; V needs to be all counts
 stan_v <- qpcr_mat[, observed_taxa]
 mode(stan_v) <- "integer"
-if (args$estimator != "naive") {
-  stan_data_lst <- list(W = br16_mat[samp, ], V = stan_v[samp, ], N = args$sample_num, q = q, q_obs = q_obs)
+if (args$use_precompiled) {
+  n <- nrow(br16_mat[, , drop = FALSE])
+  W <- cbind.data.frame(subj_id = (1:n)[samp], br16_mat[samp, , drop = FALSE])
+  V <- cbind.data.frame(subj_id = (1:n)[samp], stan_v[samp, , drop = FALSE])
+  names(W)[1:(length(observed_taxa) + 1)] <- names(V)[1:(length(observed_taxa) + 1)]
+  X <- cbind.data.frame(subj_id = (1:n)[samp], case_control = case_control[samp])
+  p <- 1
 } else {
-  stan_data_lst <- list()
+  W <- br16_mat[samp, , drop = FALSE]
+  V <- stan_v[samp, , drop = FALSE]
+  X <- matrix(case_control, ncol = 1)[samp, , drop = FALSE]
+  p <- 1
 }
-
+if (args$estimator != "naive") {
+  stan_data_lst <- list(W = W, V = V,
+                        N = length(samp), q = q, q_obs = q_obs,
+                        sigma_beta = 1.62, sigma_Sigma = sqrt(50),
+                        alpha_sigma = args$alpha_sigma, kappa_sigma = args$kappa_sigma)
+} else {
+  stan_data_lst <- list(N = length(samp))
+}
+if (args$adjust) {
+  tmp <- c(stan_data_lst, list(X = X, p = 1))
+  stan_data_lst <- tmp
+} else {
+  tmp <- c(stan_data_lst, list(X = V[, 1, drop = FALSE]))
+  stan_data_lst <- tmp
+}
 
 ## set up parallel
 if (args$do_parallel) {
@@ -189,25 +216,50 @@ if (args$estimator == "naive") {
   samps <- NA
     mod_summ <- mod
 } else if (args$estimator == "no_ve") {
+  if (args$use_precompiled) {
+      system.time(mod <- paramedic::no_efficiency(W = stan_data_lst$W, V = stan_data_lst$V,
+                                                  X = stan_data_lst$X, n_iter = args$n_iter,
+                                                  n_burnin = args$n_burnin, n_chains = args$n_chains,
+                                                  stan_seed = stan_seeds[1],
+                                                  inits_lst = inits_list,
+                                                  sigma_beta = stan_data_lst$sigma_beta, sigma_Sigma = stan_data_lst$sigma_Sigma,
+                                                  control = list(adapt_delta = adapt_delta, max_treedepth = max_treedepth),
+                                                  open_progress = FALSE, verbose = FALSE))
+  } else {
     system.time(mod <- stan(file = paste0(stan_dir, "predict_qpcr_noncentered.stan"),
-                              data = stan_data_lst,
-                              iter = args$n_iter, warmup = args$n_burnin, chains = args$n_chains, seed = stan_seeds[1],
-                              control = list(adapt_delta = adapt_delta, max_treedepth = max_treedepth),
-                              verbose = FALSE, open_progress = FALSE,
+                            data = stan_data_lst,
+                            iter = args$n_iter, warmup = args$n_burnin, chains = args$n_chains, seed = stan_seeds[1],
+                            control = list(adapt_delta = adapt_delta, max_treedepth = max_treedepth),
+                            verbose = FALSE, open_progress = FALSE,
                             pars = c("mu", "beta", "Sigma"),
                             init = inits_list))
-    mod_summ <- summary(mod, probs = c(0.025, 0.975))$summary
-    samps <- rstan::extract(mod)
-} else {
+  }
+  mod_summ <- summary(mod, probs = c(0.025, 0.975))$summary
+  samps <- rstan::extract(mod)
+} else if (args$estimator == "ve") {
+  if (args$use_precompiled) {
+    system.time(mod <- paramedic::run_paramedic(W = stan_data_lst$W, V = stan_data_lst$V,
+                                                X = stan_data_lst$X, n_iter = args$n_iter,
+                                                n_burnin = args$n_burnin, n_chains = args$n_chains,
+                                                stan_seed = stan_seeds[2],
+                                                inits_lst = inits_list,
+                                                sigma_beta = stan_data_lst$sigma_beta, sigma_Sigma = stan_data_lst$sigma_Sigma,
+                                                alpha_sigma = stan_data_lst$alpha_sigma, kappa_sigma = stan_data_lst$kappa_sigma,
+                                                control = list(adapt_delta = adapt_delta, max_treedepth = max_treedepth),
+                                                open_progress = FALSE, verbose = FALSE))
+  } else {
     system.time(mod <- stan(file = paste0(stan_dir, "predict_qpcr_with_varying_efficiency_noncentered.stan"),
-                              data = stan_data_lst,
-                              iter = args$n_iter, warmup = args$n_burnin, chains = args$n_chains, seed = stan_seeds[2],
-                              control = list(adapt_delta = adapt_delta, max_treedepth = max_treedepth),
-                              verbose = FALSE, open_progress = FALSE,
+                            data = stan_data_lst,
+                            iter = args$n_iter, warmup = args$n_burnin, chains = args$n_chains, seed = stan_seeds[2],
+                            control = list(adapt_delta = adapt_delta, max_treedepth = max_treedepth),
+                            verbose = FALSE, open_progress = FALSE,
                             pars = c("mu", "beta", "Sigma", "e", "sigma"),
                             init = inits_list))
-    mod_summ <- summary(mod, probs = c(0.025, 0.975))$summary
-    samps <- rstan::extract(mod)
+  }
+  mod_summ <- summary(mod, probs = c(0.025, 0.975))$summary
+  samps <- rstan::extract(mod)
+} else {
+  stop("the estimator requested isn't currently implemented")
 }
 
 ## save off stan model objects, naive estimators, data
