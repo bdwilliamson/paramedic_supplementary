@@ -22,10 +22,13 @@ alpha_sigma=${15}
 kappa_sigma=${16}
 
 
-ml R/3.4.3-foss-2016b-fh1
+ml R/3.5.3-foss-2018b-fh1
 
 sbatch --time=3-0 ./qpcr_data_analysis.sh "naive" 0 1 "$nchains" "$niter" "$nburn" "$q" "$nfolds" "$sample" "$qobs" "$loo" "$div_num" "$save_model" "$max_tree" "$adapt_delta" "$use_precompiled" "$adjust" "$alpha_sigma" "$kappa_sigma"
 
-sbatch -c6 -p largenode --mem 33G --time=7-0 ./qpcr_data_analysis.sh "no_ve" 1 1 "$nchains" "$niter" "$nburn" "$q" "$sample" "$qobs" "$loo" "$div_num" "$save_model" "$max_tree" "$adapt_delta" "$use_precompiled" "$adjust" "$alpha_sigma" "$kappa_sigma"
+for i in $(seq 1 $nfolds)
+do
+    sbatch -c6 --mem 100G --time=7-0 ./qpcr_data_analysis.sh "no_ve" 1 $i "$nchains" "$niter" "$nburn" "$q" "$nfolds" "$sample" "$qobs" "$loo" "$div_num" "$save_model" "$max_tree" "$adapt_delta" "$use_precompiled" "$adjust" "$alpha_sigma" "$kappa_sigma"
 
-sbatch -c6 -p largenode --mem 33G --time=7-0 ./qpcr_data_analysis.sh "ve" 1 1 "$nchains" "$niter" "$nburn" "$q" "$sample" "$qobs" "$loo" "$div_num" "$save_model" "$max_tree" "$adapt_delta" "$use_precompiled" "$adjust" "$alpha_sigma" "$kappa_sigma"
+    sbatch -c6 --mem 100G --time=7-0 ./qpcr_data_analysis.sh "ve" 1 $i "$nchains" "$niter" "$nburn" "$q" "$nfolds" "$sample" "$qobs" "$loo" "$div_num" "$save_model" "$max_tree" "$adapt_delta" "$use_precompiled" "$adjust" "$alpha_sigma" "$kappa_sigma"
+done
